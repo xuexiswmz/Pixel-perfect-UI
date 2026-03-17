@@ -1,0 +1,91 @@
+{
+  "scope": "full-page",
+  "pageName": "Marketing Landing",
+  "shell": {
+    "hasHeader": true,
+    "hasFooter": true,
+    "maxWidth": "1200px",
+    "background": "light neutral"
+  },
+  "sections": [
+    {
+      "name": "Hero",
+      "role": "Primary introduction and CTA",
+      "layout": "two-column",
+      "repeatedComponents": ["PrimaryButton", "SecondaryButton"]
+    },
+    {
+      "name": "Feature Grid",
+      "role": "Explain product value",
+      "layout": "three-column cards",
+      "repeatedComponents": ["FeatureCard"]
+    },
+    {
+      "name": "Testimonials",
+      "role": "Trust and social proof",
+      "layout": "carousel or grid",
+      "repeatedComponents": ["TestimonialCard"]
+    }
+  ],
+  "tokens": {
+    "color": {
+      "bg": "#F8FAFC",
+      "surface": "#FFFFFF",
+      "border": "#E2E8F0",
+      "text": {
+        "primary": "#0F172A",
+        "secondary": "#475569",
+        "muted": "#64748B"
+      },
+      "brand": {
+        "primary": "#2563EB",
+        "accent": "#7C3AED"
+      }
+    },
+    "space": {
+      "xs": "4px",
+      "sm": "8px",
+      "md": "16px",
+      "lg": "24px",
+      "xl": "32px",
+      "section": "96px"
+    },
+    "radius": {
+      "sm": "8px",
+      "md": "16px",
+      "lg": "24px",
+      "pill": "999px"
+    },
+    "shadow": {
+      "card": "0 12px 40px rgba(15, 23, 42, 0.06)",
+      "popover": "0 20px 50px rgba(15, 23, 42, 0.12)"
+    },
+    "typography": {
+      "hero": {
+        "size": "56px",
+        "lineHeight": "64px",
+        "weight": 700
+      },
+      "title": {
+        "size": "32px",
+        "lineHeight": "40px",
+        "weight": 600
+      },
+      "body": {
+        "size": "16px",
+        "lineHeight": "28px",
+        "weight": 400
+      },
+      "label": {
+        "size": "14px",
+        "lineHeight": "20px",
+        "weight": 500
+      }
+    },
+    "layout": {
+      "container": "1200px",
+      "heroGap": "48px",
+      "gridGap": "24px"
+    }
+  }
+}

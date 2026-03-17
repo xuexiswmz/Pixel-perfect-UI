@@ -1,0 +1,23 @@
+{
+  "name": "frontend-ui-builder-skill",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cross-IDE frontend UI generation, reconstruction, and precise patching skill",
+  "scripts": {
+    "verify:locate": "node scripts/locate-target.js --root assets/templates --query \"module primary action\" --anchor \"Primary action\" --limit 3",
+    "verify:visual-plan": "node scripts/plan-visual-reconstruction.js --input \"full-page landing screenshot with header hero feature cards testimonials faq footer and repeated buttons\" --format markdown",
+    "verify:visual-scaffold": "node scripts/generate-visual-scaffold.js --file assets/templates/visual/page-analysis.example.json --stack react --css scss --out .tmp-visual",
+    "verify:visual-patch": "node scripts/plan-visual-patch.js --input \"In the screenshot, add a green outlined button to the right of the second hero CTA labeled '了解更多'\"",
+    "verify:visual-patch:multi": "node scripts/plan-visual-patch.js --input \"In the screenshot, add a green outlined button to the right of the second hero CTA labeled '了解更多', and change the second left sidebar item to an active green style under '最近项目'\"",
+    "verify:visual-patch:locate": "node scripts/locate-visual-patch-targets.js --root assets/templates --input \"In the screenshot, add a green outlined button to the right of the second hero CTA labeled '了解更多'\" --limit 2",
+    "verify:visual-patch:fixture": "node scripts/locate-visual-patch-targets.js --root assets/fixtures/visual-patch-fixture --input \"In the screenshot, add a green outlined button to the right of the second hero CTA labeled '了解更多'\" --limit 2",
+    "verify:visual-patch:fixture:multi": "node scripts/locate-visual-patch-targets.js --root assets/fixtures/visual-patch-fixture --input \"根据这张截图，把 hero 区第二个按钮右侧加一个绿色描边按钮，并把左侧导航第二项改成绿色高亮，再在最近项目空状态卡片底部加一个次级按钮\" --limit 2",
+    "install:codex": "node scripts/install-skill.js --ai codex",
+    "install:cursor": "node scripts/install-skill.js --ai cursor",
+    "install:claude": "node scripts/install-skill.js --ai claude",
+    "install:all": "node scripts/install-skill.js --ai all"
+  },
+  "dependencies": {
+    "typescript": "^5.9.3"
+  }
+}

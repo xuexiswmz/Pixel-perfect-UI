@@ -1,0 +1,4 @@
+.tmp-*/
+.tmp-*.json
+.tmp-visual/
+assets/fixtures/**/preview*.png
