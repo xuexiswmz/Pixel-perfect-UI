@@ -2,3 +2,5 @@
 .tmp-*.json
 .tmp-visual/
 assets/fixtures/**/preview*.png
+node_modules/
+.DS_Store

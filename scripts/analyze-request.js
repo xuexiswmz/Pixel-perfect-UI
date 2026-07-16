@@ -1,37 +1,6 @@
 #!/usr/bin/env node
 
-const fs = require("fs");
-const path = require("path");
-
-// 解析命令行参数，支持 --key value 和 --flag 两种形式。
-function parseArgs(argv) {
-  const args = {};
-  for (let i = 2; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (!token.startsWith("--")) {
-      continue;
-    }
-
-    const key = token.slice(2);
-    const next = argv[i + 1];
-    if (!next || next.startsWith("--")) {
-      args[key] = true;
-      continue;
-    }
-
-    args[key] = next;
-    i += 1;
-  }
-  return args;
-}
-
-// 优先读取 --file 指向的文件内容，否则回退到 --input 传入的原始文本。
-function readInput(args) {
-  if (args.file) {
-    return fs.readFileSync(path.resolve(args.file), "utf8");
-  }
-  return args.input || "";
-}
+const { parseArgs, readInput, collectMatches } = require("../lib/utils");
 
 // 根据文件扩展名和文本关键词判断输入来源：
 // - visual: 截图、线框图、设计稿等视觉输入
@@ -154,11 +123,6 @@ function inferDeliverable(taskMode, stack, cssMode) {
     return "static-files";
   }
   return "component-files";
-}
-
-// 把命中的规则标签统一提取出来，供后续聚合判断使用。
-function collectMatches(lower, checks) {
-  return checks.filter((check) => check.pattern.test(lower)).map((check) => check.label);
 }
 
 // 把请求粗分为：

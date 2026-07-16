@@ -214,6 +214,9 @@ When patching an existing page, include:
 - `references/design-token-schema.md`
   Read when you need the current engineering-oriented token groups used by visual planning and scaffold generation.
 
+- `references/visual-measurement-guide.md`
+  Read when reconstructing a screenshot or mockup with pixel-perfect fidelity. Extract precise hex colors, pixel spacings, border radii, shadows, and typography values and include them as `preciseOverrides` and per-section/component `styles` in the visual plan JSON.
+
 ## Working Rules
 
 - Infer responsibly when the prompt is short, then state assumptions.
@@ -228,6 +231,7 @@ When patching an existing page, include:
 - When a PRD is mixed, implement the UI slice and record the business slice separately instead of blending both into one vague output.
 - When the request references a screenshot region, convert that region into semantic UI language before searching the codebase.
 - For screenshot-guided edits, treat nearby text, icon meaning, card role, and section placement as stronger anchors than approximate pixel position.
+- When pixel-perfect fidelity is required, extract exact hex colors, pixel spacings, border radii, and typography values from the screenshot and pass them as `preciseOverrides` and `styles` fields in the visual plan JSON instead of relying solely on token inference.
 
 ## Quick Execution Pattern
 

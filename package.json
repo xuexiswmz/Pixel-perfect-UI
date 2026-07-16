@@ -12,12 +12,16 @@
     "verify:visual-patch:locate": "node scripts/locate-visual-patch-targets.js --root assets/templates --input \"In the screenshot, add a green outlined button to the right of the second hero CTA labeled '了解更多'\" --limit 2",
     "verify:visual-patch:fixture": "node scripts/locate-visual-patch-targets.js --root assets/fixtures/visual-patch-fixture --input \"In the screenshot, add a green outlined button to the right of the second hero CTA labeled '了解更多'\" --limit 2",
     "verify:visual-patch:fixture:multi": "node scripts/locate-visual-patch-targets.js --root assets/fixtures/visual-patch-fixture --input \"根据这张截图，把 hero 区第二个按钮右侧加一个绿色描边按钮，并把左侧导航第二项改成绿色高亮，再在最近项目空状态卡片底部加一个次级按钮\" --limit 2",
+    "verify:extract-measurements": "node scripts/test-extract-measurements.js",
+    "verify:fidelity": "node scripts/test-fidelity.js",
+    "verify:box-layout": "node scripts/test-box-layout.js",
     "install:codex": "node scripts/install-skill.js --ai codex",
     "install:cursor": "node scripts/install-skill.js --ai cursor",
     "install:claude": "node scripts/install-skill.js --ai claude",
     "install:all": "node scripts/install-skill.js --ai all"
   },
   "dependencies": {
+    "sharp": "^0.35.3",
     "typescript": "^5.9.3"
   }
 }

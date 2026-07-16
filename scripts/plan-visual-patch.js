@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
-const fs = require("fs");
-const path = require("path");
+const { parseArgs, readInput, collectMatches, unique } = require("../lib/utils");
 
 const REGION_CHECKS = [
   { pattern: /hero|banner|\u9996\u5c4f|\u6a2a\u5e45/, label: "hero" },
@@ -37,56 +36,7 @@ const STYLE_CHECKS = [
   { pattern: /secondary|\u6b21\u7ea7/, label: "secondary" },
 ];
 
-const ANCHOR_PATTERNS = [
-  /\u9996\u9875/,
-  /\u9879\u76ee\u7ba1\u7406/,
-  /\u6211\u7684\u56e2\u961f/,
-  /\u521b\u4f5c\u6307\u5f15/,
-  /\u6700\u8fd1\u9879\u76ee/,
-  /\u6682\u65e0\u9879\u76ee/,
-  /\u5f00\u59cb\u521b\u4f5c/,
-  /\u4e86\u89e3\u66f4\u591a/,
-];
-
-// 解析命令行参数，支持从 --input 或 --file 输入视觉 patch 请求。
-function parseArgs(argv) {
-  const args = {};
-  for (let i = 2; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (!token.startsWith("--")) {
-      continue;
-    }
-
-    const key = token.slice(2);
-    const next = argv[i + 1];
-    if (!next || next.startsWith("--")) {
-      args[key] = true;
-      continue;
-    }
-
-    args[key] = next;
-    i += 1;
-  }
-  return args;
-}
-
-// 优先读取文件内容，否则回退到直接传入的文本。
-function readInput(args) {
-  if (args.file) {
-    return fs.readFileSync(path.resolve(args.file), "utf8");
-  }
-  return args.input || "";
-}
-
-// 提取命中的规则标签，给多个检测函数复用。
-function collectMatches(lower, checks) {
-  return checks.filter((check) => check.pattern.test(lower)).map((check) => check.label);
-}
-
-// 去重并过滤空值。
-function unique(items) {
-  return Array.from(new Set(items.filter(Boolean)));
-}
+const ANCHOR_PATTERNS = [];
 
 // 检测请求主要指向哪个 UI 区域。
 function detectRegions(lower) {

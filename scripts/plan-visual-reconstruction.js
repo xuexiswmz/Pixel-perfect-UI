@@ -1,35 +1,6 @@
 #!/usr/bin/env node
 
-const fs = require("fs");
-const path = require("path");
-
-// 解析命令行参数，支持从文本或文件构建视觉重建计划。
-function parseArgs(argv) {
-  const args = {};
-  for (let i = 2; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (!token.startsWith("--")) {
-      continue;
-    }
-    const key = token.slice(2);
-    const next = argv[i + 1];
-    if (!next || next.startsWith("--")) {
-      args[key] = true;
-      continue;
-    }
-    args[key] = next;
-    i += 1;
-  }
-  return args;
-}
-
-// 优先读取文件内容，否则使用 --input 直接传入的文本。
-function readInput(args) {
-  if (args.file) {
-    return fs.readFileSync(path.resolve(args.file), "utf8");
-  }
-  return args.input || "";
-}
+const { parseArgs, readInput } = require("../lib/utils");
 
 // 安全解析 JSON；如果失败，后续会回退到自然语言推断。
 function safeJsonParse(text) {
@@ -271,6 +242,7 @@ function normalizeJsonSpec(spec) {
     scope,
     pageName,
     shell: spec.shell || inferShell(JSON.stringify(spec), scope, sections),
+    preciseOverrides: spec.preciseOverrides || {},
     sections,
     components,
     tokens: spec.tokens || inferTokens(JSON.stringify(spec)),

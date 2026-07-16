@@ -2,44 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
-
-// 解析命令行参数，读取 stack/css/name/title/out 等配置。
-function parseArgs(argv) {
-  const args = {};
-  for (let i = 2; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (!token.startsWith("--")) {
-      continue;
-    }
-    const key = token.slice(2);
-    const next = argv[i + 1];
-    if (!next || next.startsWith("--")) {
-      args[key] = true;
-      continue;
-    }
-    args[key] = next;
-    i += 1;
-  }
-  return args;
-}
-
-// 把名字转成组件常用的 PascalCase。
-function pascalCase(value) {
-  return String(value)
-    .split(/[^a-zA-Z0-9]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join("");
-}
-
-// 把名字转成文件和 class 常用的 kebab-case。
-function kebabCase(value) {
-  return String(value)
-    .replace(/([a-z])([A-Z])/g, "$1-$2")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
+const { parseArgs, pascalCase, kebabCase, ensureDir, writeFile } = require("../lib/utils");
 
 // 用 __KEY__ 占位符把模板渲染成最终文件内容。
 function render(template, replacements) {
@@ -54,17 +17,6 @@ function render(template, replacements) {
 function loadTemplate(relativePath) {
   const templatePath = path.join(__dirname, "..", "assets", "templates", relativePath);
   return fs.readFileSync(templatePath, "utf8");
-}
-
-// 确保输出目录存在。
-function ensureDir(dir) {
-  fs.mkdirSync(dir, { recursive: true });
-}
-
-// 写文件前自动补齐父级目录。
-function writeFile(targetPath, content) {
-  ensureDir(path.dirname(targetPath));
-  fs.writeFileSync(targetPath, content, "utf8");
 }
 
 // 主流程：按目标 stack 和 cssMode 选择模板，生成最小可用脚手架。
@@ -91,7 +43,8 @@ function main() {
     STYLE_LANG: cssMode === "tailwind" ? "css" : styleExt,
   };
 
-  const created = [];
+  const useTsx = Boolean(args.tsx);
+  const reactExt = useTsx ? "tsx" : "jsx";
 
   if (stack === "html") {
     const htmlTemplate = cssMode === "tailwind" ? "html/module.tailwind.html" : "html/module.html";
@@ -106,8 +59,8 @@ function main() {
     }
   } else if (stack === "react") {
     const jsxTemplate =
-      cssMode === "tailwind" ? "react/Component.tailwind.jsx" : "react/Component.jsx";
-    const jsxFile = path.join(outDir, `${componentName}.jsx`);
+      cssMode === "tailwind" ? `react/Component.tailwind.${reactExt}` : `react/Component.${reactExt}`;
+    const jsxFile = path.join(outDir, `${componentName}.${reactExt}`);
     writeFile(jsxFile, render(loadTemplate(jsxTemplate), replacements));
     created.push(jsxFile);
 

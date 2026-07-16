@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { parseArgs } = require("../lib/utils");
 
 let tsModule = undefined;
 
@@ -17,26 +18,6 @@ const CODE_EXTENSIONS = new Set([
   ".vue",
   ".svelte",
 ]);
-
-// 解析命令行参数，支持 --root、--query、--anchor、--limit 等输入。
-function parseArgs(argv) {
-  const args = {};
-  for (let i = 2; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (!token.startsWith("--")) {
-      continue;
-    }
-    const key = token.slice(2);
-    const next = argv[i + 1];
-    if (!next || next.startsWith("--")) {
-      args[key] = true;
-      continue;
-    }
-    args[key] = next;
-    i += 1;
-  }
-  return args;
-}
 
 // 递归遍历项目目录，收集可能承载 UI 结构的代码文件。
 function walk(root, files = []) {

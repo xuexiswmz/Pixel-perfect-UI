@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const { parseArgs, ensureDir } = require("../lib/utils");
 
 const SOURCE_DIR = path.resolve(__dirname, "..");
 
@@ -26,29 +27,6 @@ const PLATFORM_MAP = {
 
 const COPY_DIRS = ["agents", "assets", "references", "scripts"];
 const COPY_FILES = ["package.json", "package-lock.json"];
-
-// 解析命令行参数，支持 --key value 和布尔开关两种形式。
-function parseArgs(argv) {
-  const args = {};
-  for (let i = 2; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (!token.startsWith("--")) continue;
-    const key = token.slice(2);
-    const next = argv[i + 1];
-    if (!next || next.startsWith("--")) {
-      args[key] = true;
-      continue;
-    }
-    args[key] = next;
-    i += 1;
-  }
-  return args;
-}
-
-// 确保目标目录存在，便于后续复制 skill 文件。
-function ensureDir(dir) {
-  fs.mkdirSync(dir, { recursive: true });
-}
 
 // 某些平台不接受 frontmatter，这里按需移除 SKILL.md 头部。
 function stripFrontmatter(markdown) {

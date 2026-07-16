@@ -2,30 +2,7 @@
 
 const { execFileSync } = require("child_process");
 const path = require("path");
-
-// 解析命令行参数，支持布尔开关和键值对参数。
-function parseArgs(argv) {
-  const args = {};
-  for (let i = 2; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (!token.startsWith("--")) {
-      continue;
-    }
-
-    const key = token.slice(2);
-    const next = argv[i + 1];
-    if (!next || next.startsWith("--")) {
-      args[key] = true;
-      continue;
-    }
-
-    args[key] = next;
-    i += 1;
-  }
-  return args;
-}
-
-// 调用同目录下的 JSON 输出脚本，并把标准输出解析成对象。
+const { parseArgs } = require("../lib/utils");
 function runJsonScript(scriptName, options) {
   const scriptPath = path.join(__dirname, scriptName);
   const cliArgs = [scriptPath];
@@ -40,12 +17,21 @@ function runJsonScript(scriptName, options) {
     }
   });
 
-  const stdout = execFileSync(process.execPath, cliArgs, {
-    cwd: process.cwd(),
-    encoding: "utf8",
-  });
-
-  return JSON.parse(stdout);
+  try {
+    const stdout = execFileSync(process.execPath, cliArgs, {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+    return JSON.parse(stdout);
+  } catch (err) {
+    if (err.code === "ENOENT") {
+      throw new Error(`Script not found: ${scriptPath}`);
+    }
+    if (err instanceof SyntaxError) {
+      throw new Error(`Failed to parse JSON output from ${scriptName}: ${err.message}`);
+    }
+    throw new Error(`Script ${scriptName} failed: ${err.message}`);
+  }
 }
 
 // 为单个视觉 patch 目标挑出最优候选，并给出可读摘要。
