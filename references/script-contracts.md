@@ -2,6 +2,14 @@
 
 This file defines the intended input and output contract for each bundled script.
 
+## Contents
+
+- Request analysis and patch location
+- Visual reconstruction planning and scaffolding
+- Screenshot auto-sampling and region measurement
+- Fidelity verification
+- Skill installation
+
 ## analyze-request.js
 
 Purpose:
@@ -27,10 +35,10 @@ Output JSON:
 
 - `inputMode`: `brief | document | visual`
 - `workstream`: `ui | business | mixed`
-- `taskMode`: `create-page | create-component | patch-existing | visual-patch-existing`
+- `taskMode`: `create-page | create-component | patch-existing | visual-patch-existing | reconstruct-screenshot-exact`
 - `stack`: `auto | html | react | vue | svelte`
 - `cssMode`: `auto | css | tailwind | less | scss`
-- `fidelity`: `standard | high`
+- `fidelity`: `standard | high-fidelity | pixel-perfect`
 - `deliverable`: `static-files | component-files | minimal-diff`
 - `businessSignals`: string array of matched business-logic indicators
 - `assumptions`: string array
@@ -223,7 +231,7 @@ CLI:
 
 ```bash
 node scripts/plan-visual-reconstruction.js --input "full-page landing screenshot with hero, feature cards, testimonials, faq"
-node scripts/plan-visual-reconstruction.js --file references/visual-spec.json
+node scripts/plan-visual-reconstruction.js --file measured-plan.json
 node scripts/plan-visual-reconstruction.js --input "..." --format markdown
 ```
 
@@ -237,6 +245,10 @@ Output:
 
 - `scope`
 - `pageName`
+- `fidelityMode`: `high-fidelity | pixel-perfect`
+- `readiness`: `ready | ready-with-estimates | measurement-draft | blocked-by-measurements`
+- `validationErrors`: missing exact measurements that block pixel-perfect generation
+- `referenceRaster`, `cssViewport`, `devicePixelRatio`, `coordinateSpace`, `regions`, `measurements`, and `captureEnvironment` when supplied
 - `shell`
 - `sections`
 - `components`
@@ -244,6 +256,9 @@ Output:
 - `assemblySteps`
 
 Use this script before writing code from a full-page screenshot so the page gets decomposed into reusable pieces first.
+
+In `pixel-perfect` mode, natural-language input without exact measurements returns `blocked-by-measurements` and does not invent sections or design tokens. Declared JSON components and their styles take precedence over inferred components.
+Renderable named regions containing `visibleText`, `assetSource`, or `componentName` become measured components and must declare `parentSection`; verification-only regions remain regions only.
 
 ## generate-visual-scaffold.js
 
@@ -283,6 +298,178 @@ Generated artifacts typically include:
 - visual token file
 - assembly guide
 - style token and page style files for non-Tailwind modes
+
+In `pixel-perfect` mode:
+
+- recoverable incomplete plans are normalized to `ready-with-estimates` and still generate code
+- recovery uses a DPR 1 capture baseline, full-page section, section-level verification regions, inferred ownership, and box-derived typography estimates when those values are absent
+- recovered plans without visible renderable regions set `intermediateOnly: true` and must not be treated as a final deliverable
+- generation exits with code `2` only when the reference raster itself is unavailable and a baseline cannot be constructed
+- section boxes, positioning, declared styles, and component styles are preserved
+- raster-coordinate boxes are converted to CSS pixels from `referenceRaster` and `cssViewport`
+- component boxes use `parentSection` or `relativeBox`; a uniquely referenced repeated component can infer its parent section
+- visual defaults such as gradient pills, rounded cards, and shadows are disabled
+- Tailwind targets also receive a neutral `page.css` and `tokens.css` so measured precision styles are not lost
+
+## auto-sample-screenshot.js
+
+Purpose:
+
+- sample objective screenshot structure before semantic planning without inventing design defaults
+
+CLI:
+
+```bash
+node scripts/auto-sample-screenshot.js --image reference.png
+node scripts/auto-sample-screenshot.js --image reference.png --sample-width 1200 --mask-threshold 18
+```
+
+Input:
+
+- `--image`: reference raster path
+- `--sample-width`: analysis width, default `1200`
+- `--mask-threshold`: distance from the detected background used to classify foreground
+- `--band-threshold`: minimum profile density used to detect visual bands
+
+Output:
+
+- exact reference raster width and height; CSS viewport and DPR remain unresolved until supplied from the capture environment
+- sampled dimensions and scale
+- valid `#RRGGBB` background color
+- foreground coverage
+- foreground content bounds
+- horizontal and vertical bands
+- strong rule candidates
+- confidence notes
+- a `measurement-draft` pixel-perfect plan with no invented semantic sections
+
+## extract-measurements.js
+
+Purpose:
+
+- extract region-level raster measurements from named boxes
+
+CLI:
+
+```bash
+node scripts/extract-measurements.js --image reference.png --file measured-plan.json --output measured-plan.with-raster.json
+```
+
+Input:
+
+- `--image`: reference raster path
+- `--file` or `--input`: JSON containing `regions` or `sections`
+- `--output`: optional path for the merged plan and extracted measurements
+- each region requires `name` and `region` or `box` with `x`, `y`, `width`, and `height`
+- set `role` or `kind` to `heading`, `title`, `text`, or `label` to request a line-count hint
+
+The script preserves the input plan and returns a merged plan whose top-level and `measurements.regions` entries contain the measured regions.
+
+Output per region:
+
+- clamped raster box
+- dominant and inner background colors
+- foreground bounds and absolute foreground bounds
+- foreground centroid
+- ink coverage
+- horizontal bands and inferred text line count
+- edge density
+
+RGBA images, negative coordinates, small regions, and boxes crossing image boundaries are normalized safely.
+
+## capture-screenshot.js
+
+Purpose:
+
+- capture a deterministic target raster with local Chrome/Chromium before fidelity verification
+
+CLI:
+
+```bash
+node scripts/capture-screenshot.js \
+  --url http://127.0.0.1:3000 \
+  --width 1453 \
+  --height 837 \
+  --dpr 2 \
+  --output target.png \
+  --metadata-output target.capture.json
+```
+
+Input:
+
+- `--url` or `--file`: rendered page URL or local HTML file
+- `--width`, `--height`: CSS viewport dimensions
+- `--dpr`: device pixel ratio
+- `--output`: target PNG path
+- `--metadata-output`: optional JSON capture report
+- `--executable`: optional Chrome/Chromium executable override
+- `--color-scheme`: `dark | light`
+- `--selector`: optional element-only capture
+- `--full-page`: optional full-page capture; exact viewport raster checks apply only to viewport captures
+- `--wait-ms`, `--wait-until`, `--timeout`: optional stability controls
+- `--allow-incomplete-assets`: diagnostic override; otherwise broken or incomplete images block capture
+
+Behavior:
+
+- launches local Chrome/Chromium through `playwright-core`
+- freezes CSS animations and transitions
+- waits for `document.fonts.ready` and image completion
+- rejects broken image assets by default
+- captures at `CSS viewport × DPR`
+- verifies viewport captures have the expected raster dimensions
+
+Output:
+
+- CSS viewport, DPR, expected and actual raster dimensions
+- font/image readiness and animation-freeze status
+- browser executable and output paths
+
+## verify-fidelity.js
+
+Purpose:
+
+- compare a rendered target screenshot against a reference without allowing uniform backgrounds to dilute visible-content errors
+
+CLI:
+
+```bash
+node scripts/verify-fidelity.js --reference reference.png --target target.png
+node scripts/verify-fidelity.js \
+  --reference reference.png \
+  --target target.png \
+  --regions-file measured-plan.json \
+  --diff-output fidelity-diff.png \
+  --min-score 95
+```
+
+The first form is diagnostic only. Pixel-perfect acceptance requires `--regions-file` or `--regions`.
+
+Input:
+
+- `--reference` or `--ref`: reference raster
+- `--target`: target capture
+- `--threshold`: per-pixel color-distance threshold, default `0.05`
+- `--mask-threshold`: foreground/background threshold, default `18`
+- `--min-score`: required composite and named-region score, default `95`
+- `--regions-file` or `--plan`: JSON containing `regions`, `keyRegions`, or `measurements.regions`
+- `--regions`: inline region JSON
+- `--diff-output`: optional PNG heatmap path
+- `--allow-size-mismatch`: keep normalized size-mismatch diagnostics explicit; it never waives the exact acceptance gate
+
+Output:
+
+- `match`, `baseCompositeScore`, `semanticPenalty`, and final `compositeScore`
+- `pixelPerfectEligible`, which is false when raster dimensions differ or named regions are absent
+- raw pixel, foreground, foreground-IoU, row-profile, column-profile, and size scores
+- exact-dimension status and background-aware coverage diagnostics
+- worst 4×4 foreground regions
+- named-region foreground bounds, similarity, IoU, text line bands, and line-count match
+- actionable issues and optional diff artifact path
+- ordered `recoveryActions` describing how to recapture or patch the next iteration
+
+Mismatched raster dimensions fail even though the target is normalized internally for diagnostic scoring.
+An otherwise identical image without named regions remains diagnostic-only and cannot return `match: true`.
+Named heading line-count mismatches apply a semantic score penalty because wrapping errors are structural, not antialiasing noise.
 
 ## install-skill.js
 

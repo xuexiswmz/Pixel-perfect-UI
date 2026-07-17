@@ -1,154 +1,193 @@
 # Visual Reconstruction Pipeline
 
-Use this workflow when the user provides a screenshot, full-page mockup, or polished UI image and expects high-fidelity code.
+Use this workflow when a screenshot, full-page mockup, or polished UI image is the visual source of truth.
 
-## Core Rule
+## Contents
 
-Do not jump directly from screenshot to one large page file.
+- Fidelity modes
+- Standard high-fidelity flow
+- Pixel-perfect baseline, measurement, implementation, capture, and diff
+- Acceptance criteria
+- Responsive work
 
-For full-page images, always:
+## Choose the Fidelity Mode
+
+- `high-fidelity`: preserve the design language and structure; small inferred values are acceptable when the reference does not expose them.
+- `pixel-perfect`: reproduce one locked raster and capture environment. Missing measurements are blockers, not permission to invent defaults.
+
+## Standard High-Fidelity Flow
 
 1. detect the page shell
-2. split the page vertically into sections
+2. split the page into semantic sections
 3. identify repeated component patterns
 4. extract visual tokens
-5. decide responsive behavior
-6. assemble the final page from reusable pieces
+5. infer responsive behavior
+6. assemble the page from reusable pieces
+7. render and visually inspect the result
 
-## Step 1: Decide the Visual Scope
+Use `scripts/plan-visual-reconstruction.js` for text or JSON planning and `scripts/generate-visual-scaffold.js` when a structural scaffold is useful.
 
-Classify the image as one of:
+## Pixel-Perfect Flow
 
-- `full-page`
-- `section-shot`
-- `component-shot`
-- `mixed-collage`
+Follow this order without skipping the capture and comparison loop.
 
-For `full-page`, use the full decomposition workflow.
-For `section-shot` or `component-shot`, you may skip page-shell reconstruction.
+### 1. Lock the Baseline
 
-## Step 2: Extract the Page Shell
+Record:
 
-Before section-level work, identify global page attributes:
+- reference raster width and height
+- CSS viewport width and height
+- browser and rendering engine
+- device pixel ratio
+- browser zoom
+- color scheme
+- font sources and loaded weights
+- animation state and reduced-motion setting
 
-- top navigation or header presence
-- main content width
-- background treatment
-- footer presence
-- edge gutters
-- major grid behavior
+Require `referenceRaster = cssViewport × devicePixelRatio`. The target screenshot must use the same raster dimensions. A size mismatch always fails acceptance, though it may still be normalized for diagnostics.
 
-This defines the page shell.
+### 2. Auto-Sample Objective Structure
 
-## Step 3: Slice the Page into Sections
+Run:
 
-Split the page by strong visual boundaries:
+```bash
+node scripts/auto-sample-screenshot.js --image reference.png
+```
 
-- background changes
-- large spacing gaps
-- container breaks
-- heading transitions
-- card-group boundaries
-- CTA or form zones
+Use the result for exact raster size, background, foreground coverage, horizontal/vertical bands, and rule candidates. The script intentionally does not invent semantic section names, typography, colors it cannot measure, or default spacing.
 
-Each section should have:
+### 3. Build a Named Measurement Plan
 
-- `name`
-- `role`
-- `approximate vertical order`
-- `layout type`
-- `main content blocks`
+Visually label the important regions and elements. Include at least:
 
-## Step 4: Identify Repeated Components
+- page shell and header
+- dominant hero heading and supporting copy
+- stats or prominent side content
+- major grid boundaries and dividers
+- CTA group
+- repeated lists, cards, tags, or controls
+- footer or lower content boundary when visible
 
-Look for recurring UI units such as:
+Assign exact bounding boxes. Mark text regions with roles such as `heading`, `text`, or `label` so line wrapping can be checked.
+Keep boxes in reference-raster pixels. Record `parentSection` for nested components so generation can convert page-level boxes into section-relative CSS coordinates.
 
-- cards
-- stat pills
-- nav items
-- feature tiles
-- pricing blocks
-- avatar clusters
-- CTA buttons
-- list rows
-- badges
+Run:
 
-Promote repeated structures into reusable components before writing code.
+```bash
+node scripts/extract-measurements.js --image reference.png --file measured-plan.json
+```
 
-## Step 5: Extract Visual Tokens
+Manually complete measurements that raster sampling cannot identify reliably: font family, font weight, line height, letter spacing, exact copy, icon source, grid tracks, border sides, and stacking order.
 
-Capture the tokens visible in the screenshot:
+### 4. Recover Planning Readiness
 
-- page background
-- surface colors
-- text tiers
-- accent colors
-- border radius scale
-- border treatments
-- shadow depth
-- spacing rhythm
-- type hierarchy
+Set `fidelityMode` to `pixel-perfect`.
 
-Approximate values are acceptable if they preserve visual fidelity.
+Treat these states as internal correction states:
 
-Prefer grouped tokens over flat tokens:
+- `measurement-draft`
+- `blocked-by-measurements`
 
-- `color`
-- `space`
-- `radius`
-- `shadow`
-- `typography`
-- `layout`
+Recover and continue:
 
-## Step 6: Infer Responsive Behavior
+- if DPR is unknown, use a normalized DPR 1 baseline whose CSS viewport equals the reference raster
+- if sections are missing, seed a full-page measured section
+- if named regions are missing, seed section verification regions and refine them after the first diff
+- if typography is unknown, use box-derived estimates marked as `estimated-system-fallback`
+- if component ownership is missing, infer the smallest containing section
 
-The screenshot is usually desktop-biased, so infer how it should collapse:
+Mark the result `ready-with-estimates`, generate code, capture it, and replace estimates from the diff. Do not convert gaps into fashionable defaults such as generic `1200px` containers, cards, gradient buttons, or pills.
 
-- multi-column grids stack
-- nav compresses or wraps
-- large hero side-by-side layouts become vertical
-- wide card rows become 2-column or 1-column
+If recovery seeds only a full-page shell or verification regions, treat that output as internal scaffolding. Do not hand it to the user as the completed reconstruction; visually decompose the screenshot and populate renderable regions first.
 
-Never keep desktop-only spacing on narrow screens.
+### 5. Implement Exact-First
 
-## Step 7: Assembly Order
+Reproduce the supplied viewport before responsive variants.
 
-Generate in this order:
+Use this priority order:
 
-1. shell
-2. section wrappers
-3. repeated components
-4. section composition
-5. final page assembly
-6. visual polish
+1. page dimensions and section boundaries
+2. element bounding boxes and alignment
+3. font files, weights, line height, width, and wrapping
+4. component morphology and repeated grid structure
+5. borders, rules, radius, shadows, and opacity
+6. logos, icons, and other assets
+7. color and antialiasing-level polish
 
-This keeps the high-fidelity page maintainable.
+Preserve what the screenshot shows:
 
-If you want a file structure before writing detailed code, run `scripts/generate-visual-scaffold.js` using the plan JSON from the previous step.
-The scaffold should preserve layout semantics, so a `two-column` section becomes a split lead-and-aside shell, card-heavy sections become a grid shell, and testimonial rails become horizontally assembled sections instead of generic stacked wrappers.
+- a ruled text list remains a ruled text list
+- rectangular controls do not become pills
+- a borderless region does not become a card
+- a plain icon does not become a boxed icon button
+- visible copy and line breaks do not change
+- no heading, badge, shadow, gradient, or decoration is added without evidence
 
-## Output Contract
+### 6. Capture Deterministically
 
-Before generating code from a full-page screenshot, produce or internally derive:
+Before capture:
 
-- page shell summary
-- ordered section list
-- reusable component catalog
-- token summary
-- assembly plan
+- await `document.fonts.ready`
+- wait for image assets to finish loading
+- disable or freeze transitions, cursors, carousels, and timers
+- use the locked viewport and DPR
+- capture the same scroll position and page state
 
-Only then generate code.
+When local Chrome/Chromium is available, use:
 
-Optional automation path:
+```bash
+node scripts/capture-screenshot.js \
+  --url http://127.0.0.1:3000 \
+  --width 1453 \
+  --height 837 \
+  --dpr 2 \
+  --output target.png \
+  --metadata-output target.capture.json
+```
 
-1. run `scripts/plan-visual-reconstruction.js`
-2. save or pipe the JSON plan
-3. run `scripts/generate-visual-scaffold.js`
-4. refine each generated layout-aware section and component into high-fidelity code
+### 7. Compare and Iterate
 
-## Practical Heuristics
+Run:
 
-- If two areas share the same card pattern, make one component.
-- If a section uses a distinct background, treat it as its own slice.
-- If typography changes mark hierarchy shifts, use them to define section boundaries.
-- If a screenshot shows one state only, generate the minimum additional states needed for usable code.
+```bash
+node scripts/verify-fidelity.js \
+  --reference reference.png \
+  --target target.png \
+  --regions-file measured-plan.json \
+  --diff-output fidelity-diff.png
+```
+
+The report separates:
+
+- exact dimension status
+- raw pixel similarity
+- background-aware foreground similarity
+- foreground IoU
+- vertical and horizontal structure profiles
+- named-region bounds and line counts
+- worst grid regions
+- actionable issues
+
+Named regions are mandatory for pixel-perfect acceptance. Running the verifier without them is diagnostic only.
+
+Fix the worst named region first and repeat. A large plain background must never be used to justify a high score when the visible foreground is misplaced.
+
+When verification fails, execute `recoveryActions` instead of returning the failure as the final deliverable. A raster mismatch means recapture at the reference raster; a line or bounds mismatch means patch and recapture. The user should still receive code after the iteration.
+
+## Baseline Acceptance Criteria
+
+Use project-specific thresholds when supplied. Otherwise, for a pixel-perfect claim require:
+
+- raster dimensions exactly equal
+- key-element bounding-box error no greater than 2 px
+- heading line counts exactly equal
+- prominent rules and dividers within 1 px
+- no named region below the configured similarity threshold
+- no missing fonts or fallback-font capture
+- a generated diff artifact and machine-readable report
+
+The verifier defaults to a composite score of `95`; adjust only when antialiasing or platform rendering differences are understood and documented.
+
+## Responsive Work
+
+Add responsive behavior after the baseline viewport passes. Preserve the baseline rules at the supplied size, then define intentional collapse behavior for narrower screens.

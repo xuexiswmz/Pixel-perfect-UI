@@ -1,7 +1,7 @@
 interface:
   display_name: "Frontend UI Builder"
-  short_description: "Generate or patch presentation-layer UI code, including screenshot-guided local edits."
-  default_prompt: "Use $frontend-ui-builder to generate or patch presentation-layer frontend UI code from a brief, UI-focused PRD, mockup, or screenshot with precise placement in the existing project."
+  short_description: "Build and verify faithful frontend UI from specs or screenshots."
+  default_prompt: "Use $frontend-ui-builder to implement this frontend UI; for screenshots, recover missing measurements, generate code, render, diff, and iteratively correct it instead of stopping at validation failures."
 
 policy:
   allow_implicit_invocation: true

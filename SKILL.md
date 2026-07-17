@@ -1,6 +1,6 @@
 ---
 name: frontend-ui-builder
-description: Generate or patch frontend UI code from a one-line brief, UI-focused PRD, wireframe, mockup, screenshot, or existing page context. Use when the task is primarily about page structure, component composition, responsive behavior, visual fidelity, styling, precise insertion into an existing frontend codebase, or screenshot-guided local UI edits across HTML, React, Next.js-style JSX, Vue, and Svelte with CSS, Tailwind CSS, Less, or Sass/SCSS. Do not use this skill as the primary workflow for requests centered on domain rules, API orchestration, permissions, data modeling, or non-trivial business logic.
+description: Generate or patch frontend UI code from a brief, UI-focused PRD, wireframe, mockup, screenshot, or existing page context. Use for page structure, component composition, responsive behavior, styling, precise insertion, screenshot-guided edits, and high-fidelity or pixel-perfect screenshot reconstruction with measured geometry, typography, browser capture, visual diff, and iterative correction across HTML, React, Next.js-style JSX, Vue, and Svelte with CSS, Tailwind CSS, Less, or Sass/SCSS. Do not use this skill as the primary workflow for domain rules, API orchestration, permissions, data modeling, or non-trivial business logic.
 ---
 
 # Frontend UI Builder
@@ -67,6 +67,7 @@ Choose one mode early and keep the scope tight:
 - `create-component`: build a standalone section, card group, modal, form block, or other reusable module.
 - `patch-existing`: insert, replace, wrap, or extend a module inside an existing page or component.
 - `visual-patch-existing`: use a screenshot, mockup, or image-region description to guide a local edit in an existing codebase.
+- `reconstruct-screenshot-exact`: reproduce a screenshot at one locked viewport using measured geometry and a render-capture-diff loop.
 
 If the user asks for a small module in an existing page, do not rewrite the full page unless the surrounding structure makes it necessary.
 
@@ -106,7 +107,20 @@ Read only the relevant reference file for the chosen output target:
 - `references/framework-routing.md`
 - `references/css-output-matrix.md`
 
-### Step 4: Generate or Patch
+### Step 4: Lock Pixel-Perfect Inputs
+
+Use this step when the user asks for pixel-perfect, exact, or measurable screenshot equivalence. Ordinary high-fidelity work may use the standard reconstruction flow unless the user also requires strict screenshot validation.
+
+1. Record `referenceRaster`, `cssViewport`, and `devicePixelRatio` separately. Require `referenceRaster = cssViewport × DPR` and use the same browser zoom for the target capture.
+2. Run `scripts/auto-sample-screenshot.js` to obtain objective page-level measurements. Treat its bands as unlabeled observations, not semantic sections.
+3. Visually label sections and key elements. Record a bounding box for the page shell, navigation, hero text, stats, content grid, CTAs, lists, and other visually dominant regions.
+4. Run `scripts/extract-measurements.js` with those named regions. For headings, record exact visible text, line count, font family, font size, weight, line height, letter spacing, and `white-space` behavior.
+5. Record the source and type of every logo, icon, illustration, and font. Reuse the actual asset when available; do not redraw it with a generic symbol.
+6. Set `fidelityMode` to `pixel-perfect`. Treat `blocked-by-measurements` or `measurement-draft` as an internal recovery state, not a user-facing terminal result. Fill derivable values, create a normalized DPR 1 baseline when the original DPR is unknown, mark estimates explicitly, and continue generating code.
+
+Read `references/visual-measurement-guide.md` for the measurement schema.
+
+### Step 5: Generate or Patch
 
 For new code:
 
@@ -131,13 +145,44 @@ For screenshot-guided patches:
 3. prefer visible labels, section roles, nearby icons, card types, and button copy as anchors
 4. if multiple regions look similar, rank the most likely host files and explain the ambiguity before editing
 
-### Step 5: Output Rules
+For exact reconstruction:
+
+1. reproduce the baseline viewport first; add responsive variants only after the baseline passes
+2. preserve component morphology: a text grid stays a text grid, a ruled list stays a ruled list, and a rectangular button does not become a pill
+3. do not introduce unobserved cards, headings, borders, shadows, gradients, badges, or decorative containers
+4. prefer measured CSS values and explicit asset dimensions over inferred design tokens
+5. wait for `document.fonts.ready` and stable assets before capturing the target screenshot
+
+### Step 6: Render, Compare, and Iterate
+
+For `reconstruct-screenshot-exact`, completion requires a closed validation loop:
+
+1. render the implementation in the target browser at the locked CSS viewport and DPR
+2. run `scripts/capture-screenshot.js` or an equivalent browser automation tool; capture only after fonts, images, and animations are stable
+3. run `scripts/verify-fidelity.js` with the reference, target, named regions, and a diff output path
+4. fix the worst named region first; prioritize dimensions and section geometry, then typography and wrapping, then component shape, borders, icons, and color
+5. repeat capture and verification until the threshold passes or a concrete blocker remains
+
+Do not claim pixel-perfect fidelity without at least one target capture and diff report. If verification does not pass, report the remaining scores and issues plainly.
+
+Failure is a correction signal, not the deliverable:
+
+- raster mismatch: update the capture CSS viewport/DPR and recapture before editing layout
+- incomplete measurements: recover a `ready-with-estimates` baseline, generate code, then replace estimates from the first diff
+- line-count or box mismatch: patch the owning typography or geometry and recapture
+- missing asset source: locate the real asset or crop a reference-region fallback, then continue
+
+Only stop automatic recovery when the reference raster itself is unavailable or an external resource cannot be obtained. Even then, deliver the best generated code and identify the remaining approximation; do not return only a blocked plan.
+
+A recovered full-page shell with no visible components is marked `intermediateOnly: true`. It is an internal artifact, never the final handoff. Continue inspecting the screenshot, add renderable named regions and components, capture, and iterate until `intermediateOnly` is false and the delivered code contains the visible page content.
+
+### Step 7: Output Rules
 
 Always produce code that is:
 
 - high fidelity when a visual artifact exists
 - semantically structured
-- responsive by default
+- responsive by default, except that pixel-perfect work must pass the locked baseline before responsive variants are added
 - consistent with the existing codebase
 - explicit about file placement
 - explicit about any assumptions
@@ -180,7 +225,19 @@ When patching an existing page, include:
 
 - `scripts/generate-visual-scaffold.js`
   Use after a visual reconstruction plan exists.
-  Generates a page-level scaffold with layout-aware sections, reusable components, tokens, and an assembly guide for HTML, React, Vue, or Svelte targets.
+  Generates a page-level scaffold with layout-aware sections, reusable components, tokens, and an assembly guide for HTML, React, Vue, or Svelte targets. In pixel-perfect mode it automatically converts recoverable measurement gaps into a `ready-with-estimates` baseline instead of stopping.
+
+- `scripts/auto-sample-screenshot.js`
+  Run first for pixel-perfect reconstruction. Measures the exact raster size, background, foreground coverage, visual bands, and rule candidates without inventing semantic sections or design values.
+
+- `scripts/extract-measurements.js`
+  Run after defining named regions. Extracts clamped region geometry, dominant colors, foreground bounds, centroid, ink coverage, horizontal bands, and edge density; heading/text regions also receive a line-count hint.
+
+- `scripts/verify-fidelity.js`
+  Run after every target capture. Requires exact dimensions by default and reports background-aware foreground similarity, foreground IoU, row/column structure, named-region typography and geometry, worst regions, and an optional diff PNG.
+
+- `scripts/capture-screenshot.js`
+  Use for deterministic Chromium capture when a local Chrome/Chromium executable is available. Locks the CSS viewport and DPR, waits for fonts and images, freezes animations, verifies the output raster, and can write capture metadata.
 
 ### references/
 
@@ -204,9 +261,6 @@ When patching an existing page, include:
 
 - `references/ide-installation.md`
   Read when installing this skill into Codex, Cursor, Claude, or other IDE-local skill folders.
-
-- `references/project-install-and-usage.md`
-  Read when you want a project-oriented walkthrough for installing and using this skill in Codex, Cursor, or similar IDE environments.
 
 - `references/visual-reconstruction-pipeline.md`
   Read when reconstructing a full page from a screenshot or UI image.
@@ -232,6 +286,12 @@ When patching an existing page, include:
 - When the request references a screenshot region, convert that region into semantic UI language before searching the codebase.
 - For screenshot-guided edits, treat nearby text, icon meaning, card role, and section placement as stronger anchors than approximate pixel position.
 - When pixel-perfect fidelity is required, extract exact hex colors, pixel spacings, border radii, and typography values from the screenshot and pass them as `preciseOverrides` and `styles` fields in the visual plan JSON instead of relying solely on token inference.
+- Exact raster dimensions are a hard gate. Do not resize mismatched screenshots and call the result pixel-perfect.
+- Do not let a large uniform background dilute validation; inspect foreground, structure profiles, and named regions.
+- Preserve visible text wrapping exactly for the baseline viewport. A heading line-count mismatch is a blocking fidelity error.
+- Treat component type as evidence. Do not transform ruled text lists into pills, plain regions into cards, or square controls into rounded decorative controls.
+- In pixel-perfect mode, use neutral scaffolding and only apply visual properties observed or measured from the reference.
+- Complete the exact desktop or supplied viewport before adding inferred responsive behavior.
 
 ## Quick Execution Pattern
 
@@ -253,11 +313,14 @@ When patching an existing page, include:
 ### For a mockup or UI image
 
 1. Inspect the image first.
-2. If it is a full-page screenshot, run `scripts/plan-visual-reconstruction.js` or follow `references/visual-reconstruction-pipeline.md` to split the page into shell, sections, and repeated components before writing code.
-3. Reconstruct the visible structure and tokens.
-4. Run `scripts/generate-visual-scaffold.js` if you want the page, layout-aware sections, components, and token files scaffolded first.
-5. Generate reusable components for repeated patterns.
-6. Assemble the page from those components and then output high-fidelity markup and styles.
+2. For standard visual work, run `scripts/plan-visual-reconstruction.js` or follow `references/visual-reconstruction-pipeline.md`.
+3. For pixel-perfect work, lock the viewport and run `scripts/auto-sample-screenshot.js` before planning.
+4. Label key regions, add exact bounding boxes and typography, then run `scripts/extract-measurements.js`.
+5. If the plan is `blocked-by-measurements` or `measurement-draft`, run automatic recovery: fill the capture baseline, infer safe ownership, mark estimated typography, and continue as `ready-with-estimates`.
+6. Generate or scaffold with `fidelityMode: pixel-perfect`; preserve the measured component morphology and avoid visual defaults. Treat estimates as first-iteration values, not final truth.
+7. Run `scripts/capture-screenshot.js --url <url> --width <css-width> --height <css-height> --dpr <dpr> --output <target.png>` or use equivalent browser automation.
+8. Run `scripts/verify-fidelity.js --reference <ref> --target <target> --regions-file <plan> --diff-output <diff.png>`.
+9. Execute the returned `recoveryActions`, correct the worst named region, and repeat until the threshold passes. Always return the generated code; report only the approximations that remain.
 
 ### For existing-page patch work
 
