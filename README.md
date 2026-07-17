@@ -128,3 +128,7 @@ pixel-perfect-ui/
 ├── agents/openai.yaml    # Codex 展示与默认提示词
 └── docs/images/          # README 效果对比图
 ```
+
+## 开源协议
+
+本项目使用 [MIT License](LICENSE)。你可以自由使用、复制、修改、合并、发布和分发本项目，但需保留原始版权声明和许可证文本。

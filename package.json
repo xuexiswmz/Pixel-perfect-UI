@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "Cross-IDE pixel-perfect screenshot-to-code reconstruction and visual patching skill",
+  "license": "MIT",
   "scripts": {
     "verify:locate": "node scripts/locate-target.js --root assets/templates --query \"module primary action\" --anchor \"Primary action\" --limit 3",
     "verify:visual-plan": "node scripts/plan-visual-reconstruction.js --input \"full-page landing screenshot with header hero feature cards testimonials faq footer and repeated buttons\" --format markdown",
