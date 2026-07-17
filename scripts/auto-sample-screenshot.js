@@ -1,138 +1,215 @@
 #!/usr/bin/env node
+
 const sharp = require("sharp");
 const { parseArgs } = require("../lib/utils");
 
-async function dominantColor(pixels) {
-  const buckets = {};
-  for (let i = 0; i < pixels.length; i += 3) {
-    const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2];
-    const key = `#${r.toString(16).padStart(2,"0")}${g.toString(16).padStart(2,"0")}${b.toString(16).padStart(2,"0")}`.toUpperCase();
-    buckets[key] = (buckets[key] || 0) + 1;
-  }
-  return Object.entries(buckets).sort((a,b) => b[1]-a[1])[0][0];
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
-async function edgeDetect(imagePath, width, height) {
-  // Find vertical edges by scanning for color transitions
-  const sample = await sharp(imagePath)
-    .resize(Math.min(width, 1200))
-    .raw().toBuffer({ resolveWithObject: true });
+function toHex(color) {
+  return `#${[color.r, color.g, color.b]
+    .map((value) => clamp(Math.round(value), 0, 255).toString(16).padStart(2, "0"))
+    .join("")}`.toUpperCase();
+}
 
-  const sw = sample.info.width;
-  const h = sample.info.height;
-  const midY = Math.floor(h / 2);
-  const rowOffset = midY * sw * 3;
+function dominantColor(data) {
+  const buckets = new Map();
+  for (let i = 0; i < data.length; i += 3) {
+    const r = Math.round(data[i] / 8) * 8;
+    const g = Math.round(data[i + 1] / 8) * 8;
+    const b = Math.round(data[i + 2] / 8) * 8;
+    const key = `${r},${g},${b}`;
+    buckets.set(key, (buckets.get(key) || 0) + 1);
+  }
+  const [key = "255,255,255"] = [...buckets.entries()].sort((a, b) => b[1] - a[1])[0] || [];
+  const [r, g, b] = key.split(",").map(Number);
+  return { r: clamp(r, 0, 255), g: clamp(g, 0, 255), b: clamp(b, 0, 255) };
+}
 
-  const edges = [];
-  let prevR = sample.data[rowOffset], prevG = sample.data[rowOffset+1], prevB = sample.data[rowOffset+2];
-  for (let x = 1; x < sw; x++) {
-    const idx = rowOffset + x * 3;
-    const dr = Math.abs(sample.data[idx] - prevR);
-    const dg = Math.abs(sample.data[idx+1] - prevG);
-    const db = Math.abs(sample.data[idx+2] - prevB);
-    if (dr + dg + db > 60) {
-      edges.push({ x: Math.round(x * width / sw), strength: dr+dg+db });
+function distanceFrom(color, data, index) {
+  const dr = data[index] - color.r;
+  const dg = data[index + 1] - color.g;
+  const db = data[index + 2] - color.b;
+  return Math.sqrt(dr * dr + dg * dg + db * db);
+}
+
+function findBands(profile, threshold, scale, gapTolerance = 4) {
+  const bands = [];
+  let start = null;
+  let lastActive = null;
+  let peak = 0;
+  for (let index = 0; index <= profile.length; index += 1) {
+    const density = index < profile.length ? profile[index] : 0;
+    if (density >= threshold) {
+      if (start === null) start = index;
+      lastActive = index;
+      peak = Math.max(peak, density);
+      continue;
     }
-    prevR = sample.data[idx]; prevG = sample.data[idx+1]; prevB = sample.data[idx+2];
+    if (start !== null && index - lastActive <= gapTolerance) continue;
+    if (start !== null) {
+      bands.push({
+        start: Math.round(start * scale),
+        end: Math.round((lastActive + 1) * scale),
+        span: Math.max(1, Math.round((lastActive + 1 - start) * scale)),
+        peakDensity: Math.round(peak * 1000) / 1000,
+      });
+    }
+    start = null;
+    lastActive = null;
+    peak = 0;
   }
-
-  return edges.filter(e => e.strength > 120).map(e => e.x);
+  return bands;
 }
 
-async function sampleStrip(imagePath, x, width, y, height) {
-  const { data } = await sharp(imagePath)
-    .extract({ left: x, top: y, width: Math.min(width, 10000), height: Math.min(height, 10000) })
-    .raw().toBuffer({ resolveWithObject: true });
-  return { color: dominantColor(data), width, height };
+async function analyzeScreenshot(imagePath, options = {}) {
+  const metadata = await sharp(imagePath).metadata();
+  if (!metadata.width || !metadata.height) throw new Error("Image dimensions are unavailable.");
+
+  const sampleWidth = Math.min(metadata.width, Number(options.sampleWidth) || 1200);
+  const scale = metadata.width / sampleWidth;
+  const sampled = await sharp(imagePath)
+    .flatten({ background: { r: 255, g: 255, b: 255 } })
+    .removeAlpha()
+    .resize({ width: sampleWidth, withoutEnlargement: true })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const width = sampled.info.width;
+  const height = sampled.info.height;
+  const patchSize = clamp(Math.round(Math.min(width, height) * 0.035), 6, 40);
+  const cornerBuffers = [];
+  const corners = [
+    [0, 0],
+    [width - patchSize, 0],
+    [0, height - patchSize],
+    [width - patchSize, height - patchSize],
+  ];
+  for (const [left, top] of corners) {
+    const patch = await sharp(imagePath)
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
+      .removeAlpha()
+      .resize({ width: sampleWidth, withoutEnlargement: true })
+      .extract({ left, top, width: patchSize, height: patchSize })
+      .raw()
+      .toBuffer();
+    cornerBuffers.push(patch);
+  }
+  const background = dominantColor(Buffer.concat(cornerBuffers));
+  const maskThreshold = Number(options.maskThreshold) || 18;
+  const rowCounts = new Float64Array(height);
+  const columnCounts = new Float64Array(width);
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  let foregroundPixels = 0;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = (y * width + x) * 3;
+      if (distanceFrom(background, sampled.data, index) <= maskThreshold) continue;
+      rowCounts[y] += 1;
+      columnCounts[x] += 1;
+      foregroundPixels += 1;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+
+  const rowDensity = Array.from(rowCounts, (count) => count / width);
+  const columnDensity = Array.from(columnCounts, (count) => count / height);
+  const horizontalBands = findBands(rowDensity, Number(options.bandThreshold) || 0.006, scale, 5);
+  const verticalBands = findBands(columnDensity, Number(options.bandThreshold) || 0.006, scale, 5);
+  const maxRuleThickness = Math.max(3, Math.round(scale * 3));
+  const horizontalRules = findBands(rowDensity, 0.5, scale, 1)
+    .filter((band) => band.peakDensity >= 0.75 && band.span <= maxRuleThickness);
+  const verticalRules = findBands(columnDensity, 0.5, scale, 1)
+    .filter((band) => band.peakDensity >= 0.75 && band.span <= maxRuleThickness);
+  const contentBounds = maxX < 0
+    ? null
+    : {
+        x: Math.round(minX * scale),
+        y: Math.round(minY * scale),
+        width: Math.round((maxX - minX + 1) * scale),
+        height: Math.round((maxY - minY + 1) * scale),
+        confidence: "medium",
+      };
+
+  const measurements = {
+    referenceRaster: {
+      width: metadata.width,
+      height: metadata.height,
+    },
+    cssViewport: null,
+    devicePixelRatio: null,
+    coordinateSpace: "reference-raster-px",
+    sampledAt: { width, height, scale: Math.round(scale * 10000) / 10000 },
+    backgroundColor: toHex(background),
+    foregroundCoverage: Math.round(foregroundPixels / (width * height) * 10000) / 100,
+    contentBounds,
+    horizontalBands,
+    verticalBands,
+    horizontalRules,
+    verticalRules,
+    confidence: {
+      backgroundColor: "high",
+      referenceRaster: "high",
+      cssViewport: "unknown until DPR and capture settings are supplied",
+      contentBounds: contentBounds ? "medium" : "low",
+      bands: "measurement-only; semantic labels require visual inspection",
+    },
+  };
+
+  return {
+    measurements,
+    plan: {
+      scope: "full-page",
+      fidelityMode: "pixel-perfect",
+      readiness: "measurement-draft",
+      referenceRaster: measurements.referenceRaster,
+      cssViewport: null,
+      devicePixelRatio: null,
+      coordinateSpace: "reference-raster-px",
+      preciseOverrides: {
+        pageShell: {
+          backgroundColor: measurements.backgroundColor,
+        },
+      },
+      sections: [],
+      components: [],
+      tokens: { color: { bg: measurements.backgroundColor } },
+      unresolved: [
+        "Label measured bands as semantic sections after visual inspection.",
+        "Record key element bounding boxes and exact typography before generation.",
+        "Record CSS viewport, devicePixelRatio, and browser capture environment before generation.",
+        "Keep bounding boxes in reference-raster pixels; the generator converts them to CSS pixels from the viewport/raster ratio.",
+      ],
+    },
+  };
 }
 
 async function main() {
   const args = parseArgs(process.argv);
-  const imagePath = args.image;
-
-  if (!imagePath) { console.error("Provide --image"); process.exit(1); }
-
-  const meta = await sharp(imagePath).metadata();
-  const w = meta.width, h = meta.height;
-
-  // 1. Get page background color from a corner
-  const corner = await sampleStrip(imagePath, 0, 100, 0, 100);
-  const center = await sampleStrip(imagePath, Math.floor(w*0.3), Math.floor(w*0.4), Math.floor(h*0.3), Math.floor(h*0.4));
-  const rightEdge = await sampleStrip(imagePath, w - 100, 100, 0, 100);
-
-  // 2. Detect vertical layout boundaries
-  const edgeColumns = await edgeDetect(imagePath, w, h);
-  const mainContentLeft = edgeColumns.find(e => e > 100) || 0;
-  const mainContentRight = [...edgeColumns].reverse().find(e => e < w - 100) || w;
-
-  // 3. Build plan with measured values
-  const plan = {
-    scope: "full-page",
-    pageName: "Precision Reconstruction",
-    preciseOverrides: {
-      pageShell: {
-        backgroundColor: corner.color,
-        maxWidth: `${w}px`,
-      },
-      sections: {
-        Header: {
-          backgroundColor: center.color,
-          padding: "16px 32px",
-        },
-        MainContent: {
-          backgroundColor: corner.color,
-          padding: "24px 0",
-          gap: "24px",
-        },
-      },
-      components: {},
-    },
-    sections: [
-      {
-        name: "Header",
-        role: "Top navigation",
-        layout: "horizontal shell",
-        styles: {
-          backgroundColor: center.color !== corner.color ? center.color : undefined,
-          padding: "16px 32px",
-        },
-      },
-      {
-        name: "MainContent",
-        role: "Primary content area",
-        layout: "stack",
-        styles: {
-          backgroundColor: corner.color,
-          padding: "24px 0",
-        },
-      },
-    ],
-    tokens: {
-      color: {
-        bg: corner.color,
-        surface: center.color !== corner.color ? center.color : "#FFFFFF",
-        border: "#E2E8F0",
-        text: { primary: "#0F172A", secondary: "#475569", muted: "#64748B" },
-        brand: { primary: "#2563EB", accent: "#7C3AED" },
-      },
-    },
-  };
-
-  console.log(JSON.stringify({
-    measurements: {
-      pageWidth: w,
-      pageHeight: h,
-      cornerBg: corner.color,
-      centerBg: center.color,
-      rightEdgeBg: rightEdge.color,
-      layoutHints: {
-        mainContentLeft,
-        mainContentRight,
-        contentWidth: mainContentRight - mainContentLeft,
-        detectedEdges: edgeColumns.slice(0, 10),
-      },
-    }, plan
-  }, null, 2));
+  if (!args.image) {
+    console.error("Provide --image <path>.");
+    process.exit(1);
+  }
+  const result = await analyzeScreenshot(args.image, {
+    sampleWidth: Number(args["sample-width"] || 1200),
+    maskThreshold: Number(args["mask-threshold"] || 18),
+    bandThreshold: Number(args["band-threshold"] || 0.006),
+  });
+  console.log(JSON.stringify(result, null, 2));
 }
 
-main().catch(e => { console.error(e.message); process.exit(1); });
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { analyzeScreenshot };
