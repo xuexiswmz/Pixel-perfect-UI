@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+const path = require("path");
 const { parseArgs, readInput, collectMatches } = require("../lib/utils");
 
 // 根据文件扩展名和文本关键词判断输入来源：
@@ -58,9 +59,13 @@ function detectTaskMode(text) {
     /existing|current page|current component|insert|append|replace|patch|\u5df2\u6709|\u73b0\u6709|\u63d2\u5165|\u66ff\u6362|\u4fee\u6539|\u6837\u5f0f/;
   const visualTerms =
     /screenshot|screen shot|mockup|wireframe|image|figma|\u622a\u56fe|\u8bbe\u8ba1\u56fe|\u539f\u578b|\u56fe\u7247|\u753b\u9762/;
+  const exactTerms = /pixel[- ]?perfect|exact fidelity|\u50cf\u7d20\u7ea7|\u9010\u50cf\u7d20|\u7cbe\u786e\u8fd8\u539f/;
 
   if (patchTerms.test(lower) && visualTerms.test(lower)) {
     return "visual-patch-existing";
+  }
+  if (exactTerms.test(lower) && visualTerms.test(lower)) {
+    return "reconstruct-screenshot-exact";
   }
   if (
     /existing|current page|current component|insert|append|replace|patch|\u5df2\u6709|\u73b0\u6709|\u63d2\u5165|\u66ff\u6362|\u6a21\u5757/.test(
@@ -106,11 +111,14 @@ function detectCssMode(text, explicit) {
 // 当输入是视觉稿，或者文本明确要求高保真时，提高输出保真等级。
 function detectFidelity(inputMode, text) {
   const lower = text.toLowerCase();
+  if (/pixel[- ]?perfect|exact fidelity|\u50cf\u7d20\u7ea7|\u9010\u50cf\u7d20|\u7cbe\u786e\u8fd8\u539f/.test(lower)) {
+    return "pixel-perfect";
+  }
   if (inputMode === "visual") {
-    return "high";
+    return "high-fidelity";
   }
   if (/high fidelity|pixel perfect|\u9ad8\u4fdd\u771f|\u50cf\u7d20\u7ea7/.test(lower)) {
-    return "high";
+    return "high-fidelity";
   }
   return "standard";
 }
@@ -184,6 +192,10 @@ function buildAssumptions(inputMode, workstream, taskMode, stack, cssMode, busin
   if (taskMode === "visual-patch-existing") {
     assumptions.push("Translate the screenshot region into semantic UI anchors before searching the codebase.");
   }
+  if (taskMode === "reconstruct-screenshot-exact") {
+    assumptions.push("Lock reference raster, CSS viewport, DPR, fonts, and capture environment before generation.");
+    assumptions.push("Require render, screenshot, named-region diff, and iterative correction before claiming pixel-perfect fidelity.");
+  }
   if (businessSignals.length) {
     assumptions.push(`Record unresolved business dependencies separately: ${businessSignals.join(", ")}.`);
   }
@@ -217,7 +229,11 @@ function main() {
 
   // 整页视觉稿通常还需要先拆页面骨架、区块和复用组件，再进入代码生成。
   if (visualScope === "full-page") {
-    assumptions.push("Split the screenshot into shell, sections, repeated components, and token hints before generating code.");
+    assumptions.push(
+      taskMode === "reconstruct-screenshot-exact"
+        ? "Measure the screenshot shell, named regions, components, typography, and assets before generating code."
+        : "Split the screenshot into shell, sections, repeated components, and token hints before generating code."
+    );
   }
 
   const result = {
@@ -236,4 +252,8 @@ function main() {
   console.log(JSON.stringify(result, null, 2));
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = { detectInputMode, detectTaskMode, detectFidelity };

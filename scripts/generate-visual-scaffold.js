@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const { parseArgs, readInput, ensureDir, writeFile, pascalCase, kebabCase } = require("../lib/utils");
 const { pageStyles, renderAllPrecisionCss } = require("../lib/page-styles");
+const { normalizeJsonSpec, recoverPixelPerfectPlan } = require("./plan-visual-reconstruction");
 
 // 根据 cssMode 选择样式文件扩展名。
 function styleExtension(cssMode) {
@@ -32,7 +33,18 @@ function detectLayoutKind(layout) {
 }
 
 // 为不同布局类型返回对应的类名集合，兼容普通 CSS 和 Tailwind。
-function layoutClasses(kind, cssMode) {
+function layoutClasses(kind, cssMode, exactMode = false) {
+  if (exactMode) {
+    return {
+      root: `section-shell section-shell--${kind}`,
+      header: "section-shell__header",
+      body: `section-shell__body section-shell__body--${kind}`,
+      lead: "section-shell__lead",
+      aside: "section-shell__aside",
+      grid: `section-grid section-grid--${kind}`,
+      rail: "section-rail",
+    };
+  }
   if (cssMode !== "tailwind") {
     return {
       root: `section-shell section-shell--${kind}`,
@@ -163,9 +175,33 @@ function indentBlock(content, spaces) {
 function renderSectionBody(section, cssMode, syntax, componentMap = {}) {
   const kind = detectLayoutKind(section.layout);
   const repeated = section.repeatedComponents || [];
-  const classes = layoutClasses(kind, cssMode);
+  const exactMode = section.fidelityMode === "pixel-perfect";
+  const classes = layoutClasses(kind, cssMode, exactMode);
 
   const join = (items) => items.filter(Boolean).join("\n");
+
+  if (exactMode) {
+    if (syntax === "react") {
+      return join([
+        `      <div className="${classes.body}" data-reconstruction-slot="${kebabCase(section.name)}">`,
+        ...renderComponentCollection(repeated, (name) => `        <${pascalCase(name)} />`),
+        "      </div>",
+      ]);
+    }
+    const tagFor = (name) => {
+      if (syntax === "html") {
+        return componentMap[name]
+          ? indentBlock(componentMap[name], 6)
+          : `      <div data-component="${kebabCase(name)}"></div>`;
+      }
+      return `      <${pascalCase(name)} />`;
+    };
+    return join([
+      `    <div class="${classes.body}" data-reconstruction-slot="${kebabCase(section.name)}">`,
+      ...renderComponentCollection(repeated, tagFor),
+      "    </div>",
+    ]);
+  }
 
   if (syntax === "react") {
     if (kind === "two-column") {
@@ -288,9 +324,13 @@ function normalizePlan(plan) {
   const sections = Array.isArray(plan.sections) ? plan.sections : [];
   const declaredComponents = Array.isArray(plan.components) ? plan.components : [];
   const inferredComponents = [];
+  const parentCandidates = new Map();
   for (const section of sections) {
     const repeated = Array.isArray(section.repeatedComponents) ? section.repeatedComponents : [];
     for (const name of repeated) {
+      const candidates = parentCandidates.get(name) || [];
+      candidates.push(section.name || "Section");
+      parentCandidates.set(name, candidates);
       inferredComponents.push({
         name,
         reason: `Repeated component inferred from the ${section.name || "section"} section.`,
@@ -300,12 +340,26 @@ function normalizePlan(plan) {
   return {
     scope: plan.scope || "full-page",
     pageName: plan.pageName || "Screenshot Reconstruction",
+    fidelityMode: plan.fidelityMode || "high-fidelity",
+    readiness: plan.readiness || (plan.fidelityMode === "pixel-perfect" ? "blocked-by-measurements" : "ready"),
+    validationErrors: plan.validationErrors || [],
+    recoveryActions: plan.recoveryActions || [],
+    intermediateOnly: Boolean(plan.intermediateOnly),
+    referenceRaster: plan.referenceRaster || plan.measurements?.referenceRaster || null,
+    cssViewport: plan.cssViewport || plan.measurements?.cssViewport || null,
+    devicePixelRatio: plan.devicePixelRatio || plan.measurements?.devicePixelRatio || null,
+    coordinateSpace: plan.coordinateSpace || "reference-raster-px",
+    regions: plan.regions || plan.keyRegions || plan.measurements?.regions || [],
+    measurements: plan.measurements || null,
+    captureEnvironment: plan.captureEnvironment || null,
     shell: plan.shell || {},
     preciseOverrides: plan.preciseOverrides || {},
     sections: sections.map((section) => ({
+      ...section,
       name: section.name || "Section",
       role: section.role || "Section role",
       layout: section.layout || "custom layout",
+      fidelityMode: plan.fidelityMode || "high-fidelity",
       repeatedComponents: Array.isArray(section.repeatedComponents)
         ? Array.from(new Set(section.repeatedComponents))
         : [],
@@ -314,10 +368,14 @@ function normalizePlan(plan) {
     components: dedupeByName(
       [...declaredComponents, ...inferredComponents].map((c) => ({
         ...c,
+        parentSection: c.parentSection || (parentCandidates.get(c.name)?.length === 1 ? parentCandidates.get(c.name)[0] : undefined),
+        fidelityMode: plan.fidelityMode || "high-fidelity",
         styles: c.styles || null,
       }))
     ),
-    tokens: deepMerge(DEFAULT_TOKENS, plan.tokens || {}),
+    tokens: plan.fidelityMode === "pixel-perfect"
+      ? deepMerge({ color: { bg: "transparent", text: { primary: "inherit" } } }, plan.tokens || {})
+      : deepMerge(DEFAULT_TOKENS, plan.tokens || {}),
     assemblySteps: Array.isArray(plan.assemblySteps) ? plan.assemblySteps : [],
   };
 }
@@ -463,7 +521,8 @@ function reactSectionContent(section, cssMode) {
   const sectionName = `${pascalCase(section.name)}Section`;
   const repeated = section.repeatedComponents || [];
   const kind = detectLayoutKind(section.layout);
-  const classes = layoutClasses(kind, cssMode);
+  const exactMode = section.fidelityMode === "pixel-perfect";
+  const classes = layoutClasses(kind, cssMode, exactMode);
   const imports = repeated.map((name) => `import ${pascalCase(name)} from "../components/${pascalCase(name)}.jsx";`);
   const bodyMarkup = renderSectionBody(section, cssMode, "react");
 
@@ -475,12 +534,12 @@ function reactSectionContent(section, cssMode) {
     cssMode === "tailwind"
       ? `    <section className="${classes.root}" aria-label="${section.name}" data-layout="${layoutSlug(section.layout)}" data-layout-kind="${kind}" data-section="${kebabCase(section.name)}">`
       : `    <section className="${classes.root}" aria-label="${section.name}" data-layout="${layoutSlug(section.layout)}" data-layout-kind="${kind}" data-section="${kebabCase(section.name)}">`,
-    cssMode === "tailwind" ? `      <header className="${classes.header}">` : `      <header className="${classes.header}">`,
-    cssMode === "tailwind"
+    exactMode ? null : `      <header className="${classes.header}">`,
+    exactMode ? null : cssMode === "tailwind"
       ? `        <p className="m-0 text-sm text-slate-500">${section.role}</p>`
       : `        <p className="section-shell__role">${section.role}</p>`,
-    `        <h2>${section.name}</h2>`,
-    "      </header>",
+    exactMode ? null : `        <h2>${section.name}</h2>`,
+    exactMode ? null : "      </header>",
     bodyMarkup,
     "    </section>",
     "  );",
@@ -494,6 +553,23 @@ function reactComponentContent(component, cssMode) {
   const name = pascalCase(component.name);
   const dataComp = kebabCase(component.name);
   const isButton = /button/i.test(component.name);
+  const exactMode = component.fidelityMode === "pixel-perfect";
+  const visibleText = component.visibleText || component.label || "";
+  if (exactMode) {
+    const exactElement = component.assetSource
+      ? `    <img src="${component.assetSource}" alt="${component.alt || visibleText || component.name}" data-component="${dataComp}" />`
+      : isButton
+        ? `    <button type="button" data-component="${dataComp}">${visibleText}</button>`
+        : `    <div data-component="${dataComp}">${visibleText}</div>`;
+    return [
+      `export default function ${name}() {`,
+      "  return (",
+      exactElement,
+      "  );",
+      "}",
+      "",
+    ].join("\n");
+  }
   return [
     `export default function ${name}() {`,
     "  return (",
@@ -522,7 +598,9 @@ function reactPageContent(plan, cssMode, pageFileBase) {
   const imports = plan.sections.map(
     (section) => `import ${pascalCase(section.name)}Section from "../sections/${pascalCase(section.name)}Section.jsx";`
   );
-  const styleImport = cssMode === "tailwind" ? [] : [`import "../styles/page.${styleExtension(cssMode)}";`];
+  const exactMode = plan.fidelityMode === "pixel-perfect";
+  const effectiveCssMode = exactMode && cssMode === "tailwind" ? "css" : cssMode;
+  const styleImport = cssMode === "tailwind" && !exactMode ? [] : [`import "../styles/page.${styleExtension(effectiveCssMode)}";`];
   const sectionMarkup = plan.sections
     .map((section) => `        <${pascalCase(section.name)}Section />`)
     .join("\n");
@@ -532,10 +610,10 @@ function reactPageContent(plan, cssMode, pageFileBase) {
     "",
     `export default function ${pageComponentName}() {`,
     "  return (",
-    cssMode === "tailwind"
+    cssMode === "tailwind" && !exactMode
       ? `    <div className="min-h-screen bg-slate-50">`
       : `    <div className="page-shell${isWorkspaceVariant(pageVariant) ? " page-shell--workspace" : ""}">`,
-    cssMode === "tailwind"
+    cssMode === "tailwind" && !exactMode
       ? `      <main className="mx-auto grid w-[min(1200px,calc(100%-48px))] gap-12 py-8">`
       : `      <main className="page-main${isWorkspaceVariant(pageVariant) ? " page-main--workspace" : ""}">`,
     sectionMarkup,
@@ -551,7 +629,8 @@ function reactPageContent(plan, cssMode, pageFileBase) {
 function vueSectionContent(section, cssMode) {
   const repeated = section.repeatedComponents || [];
   const kind = detectLayoutKind(section.layout);
-  const classes = layoutClasses(kind, cssMode);
+  const exactMode = section.fidelityMode === "pixel-perfect";
+  const classes = layoutClasses(kind, cssMode, exactMode);
   const imports = repeated.map((name) => `import ${pascalCase(name)} from "../components/${pascalCase(name)}.vue";`);
   const bodyMarkup = renderSectionBody(section, cssMode, "vue");
   return [
@@ -559,12 +638,12 @@ function vueSectionContent(section, cssMode) {
     cssMode === "tailwind"
       ? `  <section class="${classes.root}" aria-label="${section.name}" data-layout="${layoutSlug(section.layout)}" data-layout-kind="${kind}" data-section="${kebabCase(section.name)}">`
       : `  <section class="${classes.root}" aria-label="${section.name}" data-layout="${layoutSlug(section.layout)}" data-layout-kind="${kind}" data-section="${kebabCase(section.name)}">`,
-    cssMode === "tailwind" ? `    <header class="${classes.header}">` : `    <header class="${classes.header}">`,
-    cssMode === "tailwind"
+    exactMode ? null : `    <header class="${classes.header}">`,
+    exactMode ? null : cssMode === "tailwind"
       ? `      <p class="m-0 text-sm text-slate-500">${section.role}</p>`
       : `      <p class="section-shell__role">${section.role}</p>`,
-    `      <h2>${section.name}</h2>`,
-    "    </header>",
+    exactMode ? null : `      <h2>${section.name}</h2>`,
+    exactMode ? null : "    </header>",
     bodyMarkup,
     "  </section>",
     "</template>",
@@ -580,6 +659,20 @@ function vueSectionContent(section, cssMode) {
 function vueComponentContent(component, cssMode) {
   const dataComp = kebabCase(component.name);
   const isButton = /button/i.test(component.name);
+  const exactMode = component.fidelityMode === "pixel-perfect";
+  const visibleText = component.visibleText || component.label || "";
+  if (exactMode) {
+    return [
+      "<template>",
+      component.assetSource
+        ? `  <img src="${component.assetSource}" alt="${component.alt || visibleText || component.name}" data-component="${dataComp}" />`
+        : isButton
+          ? `  <button type="button" data-component="${dataComp}">${visibleText}</button>`
+          : `  <div data-component="${dataComp}">${visibleText}</div>`,
+      "</template>",
+      "",
+    ].join("\n");
+  }
   return [
     "<template>",
     isButton
@@ -605,14 +698,16 @@ function vuePageContent(plan, cssMode) {
   const imports = plan.sections.map(
     (section) => `import ${pascalCase(section.name)}Section from "./sections/${pascalCase(section.name)}Section.vue";`
   );
-  const styleImport = cssMode === "tailwind" ? [] : [`import "./styles/page.${styleExtension(cssMode)}";`];
+  const exactMode = plan.fidelityMode === "pixel-perfect";
+  const effectiveCssMode = exactMode && cssMode === "tailwind" ? "css" : cssMode;
+  const styleImport = cssMode === "tailwind" && !exactMode ? [] : [`import "./styles/page.${styleExtension(effectiveCssMode)}";`];
   const sectionMarkup = plan.sections
     .map((section) => `      <${pascalCase(section.name)}Section />`)
     .join("\n");
   return [
     "<template>",
-    cssMode === "tailwind" ? `  <div class="min-h-screen bg-slate-50">` : `  <div class="page-shell${isWorkspaceVariant(pageVariant) ? " page-shell--workspace" : ""}">`,
-    cssMode === "tailwind"
+    cssMode === "tailwind" && !exactMode ? `  <div class="min-h-screen bg-slate-50">` : `  <div class="page-shell${isWorkspaceVariant(pageVariant) ? " page-shell--workspace" : ""}">`,
+    cssMode === "tailwind" && !exactMode
       ? `    <main class="mx-auto grid w-[min(1200px,calc(100%-48px))] gap-12 py-8">`
       : `    <main class="page-main${isWorkspaceVariant(pageVariant) ? " page-main--workspace" : ""}">`,
     sectionMarkup,
@@ -631,7 +726,8 @@ function vuePageContent(plan, cssMode) {
 // 生成 Svelte 区块组件源码。
 function svelteSectionContent(section, cssMode) {
   const kind = detectLayoutKind(section.layout);
-  const classes = layoutClasses(kind, cssMode);
+  const exactMode = section.fidelityMode === "pixel-perfect";
+  const classes = layoutClasses(kind, cssMode, exactMode);
   const imports = (section.repeatedComponents || []).map(
     (name) => `import ${pascalCase(name)} from "../components/${pascalCase(name)}.svelte";`
   );
@@ -644,12 +740,12 @@ function svelteSectionContent(section, cssMode) {
     cssMode === "tailwind"
       ? `<section class="${classes.root}" aria-label="${section.name}" data-layout="${layoutSlug(section.layout)}" data-layout-kind="${kind}" data-section="${kebabCase(section.name)}">`
       : `<section class="${classes.root}" aria-label="${section.name}" data-layout="${layoutSlug(section.layout)}" data-layout-kind="${kind}" data-section="${kebabCase(section.name)}">`,
-    cssMode === "tailwind" ? `  <header class="${classes.header}">` : `  <header class="${classes.header}">`,
-    cssMode === "tailwind"
+    exactMode ? null : `  <header class="${classes.header}">`,
+    exactMode ? null : cssMode === "tailwind"
       ? `    <p class="m-0 text-sm text-slate-500">${section.role}</p>`
       : `    <p class="section-shell__role">${section.role}</p>`,
-    `    <h2>${section.name}</h2>`,
-    "  </header>",
+    exactMode ? null : `    <h2>${section.name}</h2>`,
+    exactMode ? null : "  </header>",
     bodyMarkup,
     "</section>",
     "",
@@ -660,6 +756,18 @@ function svelteSectionContent(section, cssMode) {
 function svelteComponentContent(component, cssMode) {
   const dataComp = kebabCase(component.name);
   const isButton = /button/i.test(component.name);
+  const exactMode = component.fidelityMode === "pixel-perfect";
+  const visibleText = component.visibleText || component.label || "";
+  if (exactMode) {
+    return [
+      component.assetSource
+        ? `<img src="${component.assetSource}" alt="${component.alt || visibleText || component.name}" data-component="${dataComp}" />`
+        : isButton
+          ? `<button type="button" data-component="${dataComp}">${visibleText}</button>`
+          : `<div data-component="${dataComp}">${visibleText}</div>`,
+      "",
+    ].join("\n");
+  }
   return [
     isButton
       ? cssMode === "tailwind"
@@ -683,7 +791,9 @@ function sveltePageContent(plan, cssMode) {
   const imports = plan.sections.map(
     (section) => `import ${pascalCase(section.name)}Section from "./sections/${pascalCase(section.name)}Section.svelte";`
   );
-  const styleImport = cssMode === "tailwind" ? [] : [`import "./styles/page.${styleExtension(cssMode)}";`];
+  const exactMode = plan.fidelityMode === "pixel-perfect";
+  const effectiveCssMode = exactMode && cssMode === "tailwind" ? "css" : cssMode;
+  const styleImport = cssMode === "tailwind" && !exactMode ? [] : [`import "./styles/page.${styleExtension(effectiveCssMode)}";`];
   const sectionMarkup = plan.sections
     .map((section) => `    <${pascalCase(section.name)}Section />`)
     .join("\n");
@@ -693,8 +803,8 @@ function sveltePageContent(plan, cssMode) {
     ...imports,
     "</script>",
     "",
-    cssMode === "tailwind" ? `<div class="min-h-screen bg-slate-50">` : `<div class="page-shell${isWorkspaceVariant(pageVariant) ? " page-shell--workspace" : ""}">`,
-    cssMode === "tailwind"
+    cssMode === "tailwind" && !exactMode ? `<div class="min-h-screen bg-slate-50">` : `<div class="page-shell${isWorkspaceVariant(pageVariant) ? " page-shell--workspace" : ""}">`,
+    cssMode === "tailwind" && !exactMode
       ? `  <main class="mx-auto grid w-[min(1200px,calc(100%-48px))] gap-12 py-8">`
       : `  <main class="page-main${isWorkspaceVariant(pageVariant) ? " page-main--workspace" : ""}">`,
     sectionMarkup,
@@ -707,6 +817,18 @@ function sveltePageContent(plan, cssMode) {
 // 生成 HTML 组件片段；部分 workspace 组件带有更具体的默认结构。
 function htmlComponentContent(component, cssMode) {
   const lowerName = String(component.name || "").toLowerCase();
+  const dataComp = kebabCase(component.name);
+  const isButton = /button/i.test(component.name);
+  const exactMode = component.fidelityMode === "pixel-perfect";
+  const visibleText = component.visibleText || component.label || "";
+  if (exactMode) {
+    if (component.assetSource) {
+      return `<img src="${component.assetSource}" alt="${component.alt || visibleText || component.name}" data-component="${dataComp}" />\n`;
+    }
+    return isButton
+      ? `<button type="button" data-component="${dataComp}">${visibleText}</button>\n`
+      : `<div data-component="${dataComp}">${visibleText}</div>\n`;
+  }
   if (cssMode !== "tailwind") {
     if (lowerName === "breadcrumbitem") {
       return [
@@ -793,8 +915,6 @@ function htmlComponentContent(component, cssMode) {
       ].join("\n");
     }
   }
-  const dataComp = kebabCase(component.name);
-  const isButton = /button/i.test(component.name);
   return [
     isButton
       ? cssMode === "tailwind"
@@ -816,8 +936,9 @@ function htmlComponentContent(component, cssMode) {
 function htmlSectionContent(section, cssMode, componentMap = {}, pageVariant = "default") {
   const kind = detectLayoutKind(section.layout);
   const variant = detectSectionVariant(section);
-  const classes = layoutClasses(kind, cssMode);
-  if (cssMode !== "tailwind" && variant === "workspace-topbar") {
+  const exactMode = section.fidelityMode === "pixel-perfect";
+  const classes = layoutClasses(kind, cssMode, exactMode);
+  if (!exactMode && cssMode !== "tailwind" && variant === "workspace-topbar") {
     const breadcrumbPrimary = "Project Name";
     const breadcrumbCurrent = "New Item";
     return [
@@ -834,7 +955,7 @@ function htmlSectionContent(section, cssMode, componentMap = {}, pageVariant = "
       "",
     ].join("\n");
   }
-  if (cssMode !== "tailwind" && variant === "workspace-scene") {
+  if (!exactMode && cssMode !== "tailwind" && variant === "workspace-scene") {
     if (pageVariant === "workspace-dark-item") {
       return [
         '<section class="workspace-shell workspace-shell--dark-item" aria-label="Workspace">',
@@ -953,12 +1074,12 @@ function htmlSectionContent(section, cssMode, componentMap = {}, pageVariant = "
     cssMode === "tailwind"
       ? `<section class="${classes.root}" aria-label="${section.name}" data-layout="${layoutSlug(section.layout)}" data-layout-kind="${kind}" data-section="${kebabCase(section.name)}">`
       : `<section class="${classes.root}" aria-label="${section.name}" data-layout="${layoutSlug(section.layout)}" data-layout-kind="${kind}" data-section="${kebabCase(section.name)}">`,
-    cssMode === "tailwind" ? `  <header class="${classes.header}">` : `  <header class="${classes.header}">`,
-    cssMode === "tailwind"
+    exactMode ? null : `  <header class="${classes.header}">`,
+    exactMode ? null : cssMode === "tailwind"
       ? `    <p class="m-0 text-sm text-slate-500">${section.role}</p>`
       : `    <p class="section-shell__role">${section.role}</p>`,
-    `    <h2>${section.name}</h2>`,
-    "  </header>",
+    exactMode ? null : `    <h2>${section.name}</h2>`,
+    exactMode ? null : "  </header>",
     bodyMarkup,
     "</section>",
     "",
@@ -968,11 +1089,12 @@ function htmlSectionContent(section, cssMode, componentMap = {}, pageVariant = "
 // 生成最终的 HTML 页面文档。
 function htmlPageContent(plan, cssMode, cssExt, componentMap = {}) {
   const pageVariant = detectPageVariant(plan);
+  const exactMode = plan.fidelityMode === "pixel-perfect";
   const sectionMarkup = plan.sections
     .map((section) => indentBlock(htmlSectionContent(section, cssMode, componentMap, pageVariant).trimEnd(), 6))
     .join("\n");
   const styleLinks =
-    cssMode === "tailwind"
+    cssMode === "tailwind" && !exactMode
       ? []
       : [
           `  <link rel="stylesheet" href="./styles/tokens.${cssExt}" />`,
@@ -988,10 +1110,10 @@ function htmlPageContent(plan, cssMode, cssExt, componentMap = {}) {
     ...styleLinks,
     "</head>",
     "<body>",
-    cssMode === "tailwind"
+    cssMode === "tailwind" && !exactMode
       ? '  <div class="min-h-screen bg-slate-50">'
       : `  <div class="page-shell${isWorkspaceVariant(pageVariant) ? " page-shell--workspace" : ""}">`,
-    cssMode === "tailwind"
+    cssMode === "tailwind" && !exactMode
       ? '    <main class="mx-auto grid w-[min(1200px,calc(100%-48px))] gap-12 py-8">'
       : `    <main class="page-main${isWorkspaceVariant(pageVariant) ? " page-main--workspace" : ""}">`,
     sectionMarkup,
@@ -1011,7 +1133,17 @@ function assemblyGuide(plan, stack, cssMode) {
   lines.push(`- Stack: ${stack}`);
   lines.push(`- CSS Mode: ${cssMode}`);
   lines.push(`- Scope: ${plan.scope}`);
+  lines.push(`- Readiness: ${plan.readiness}`);
+  lines.push(`- Intermediate only: ${plan.intermediateOnly ? "yes" : "no"}`);
   lines.push("");
+  if ((plan.recoveryActions || []).length > 0) {
+    lines.push("## Recovery Actions");
+    lines.push("");
+    for (const action of plan.recoveryActions) {
+      lines.push(`- ${action.type}: ${action.message || "Apply this correction before final acceptance."}`);
+    }
+    lines.push("");
+  }
   lines.push("## Sections");
   lines.push("");
   for (const section of plan.sections) {
@@ -1110,7 +1242,8 @@ function writeSvelteScaffold(plan, outDir, cssMode, created) {
 
 // 把 HTML 页面、sections 和 components 落盘到目标目录。
 function writeHtmlScaffold(plan, outDir, cssMode, created) {
-  const cssExt = styleExtension(cssMode);
+  const effectiveCssMode = plan.fidelityMode === "pixel-perfect" && cssMode === "tailwind" ? "css" : cssMode;
+  const cssExt = styleExtension(effectiveCssMode);
   const componentMap = Object.fromEntries(
     plan.components.map((component) => [component.name, htmlComponentContent(component, cssMode).trimEnd()])
   );
@@ -1145,14 +1278,15 @@ function writeSharedArtifacts(plan, outDir, stack, cssMode, created) {
   writeFile(guidePath, assemblyGuide(plan, stack, cssMode));
   created.push(guidePath);
 
-  if (cssMode !== "tailwind") {
-    const ext = styleExtension(cssMode);
+  if (cssMode !== "tailwind" || plan.fidelityMode === "pixel-perfect") {
+    const effectiveCssMode = plan.fidelityMode === "pixel-perfect" && cssMode === "tailwind" ? "css" : cssMode;
+    const ext = styleExtension(effectiveCssMode);
     const baseDir = stack === "html" ? path.join(outDir, "styles") : path.join(outDir, "src", "styles");
     const tokenPath = path.join(baseDir, `tokens.${ext}`);
     const pagePath = path.join(baseDir, `page.${ext}`);
-    const pageCss = pageStyles(plan, cssMode, detectPageVariant(plan))
+    const pageCss = pageStyles(plan, effectiveCssMode, detectPageVariant(plan))
       + renderAllPrecisionCss(plan);
-    writeFile(tokenPath, tokenCss(plan, cssMode));
+    writeFile(tokenPath, tokenCss(plan, effectiveCssMode));
     writeFile(pagePath, pageCss);
     created.push(tokenPath, pagePath);
   }
@@ -1171,7 +1305,39 @@ function main() {
     process.exit(1);
   }
 
-  const plan = normalizePlan(parsePlan(raw));
+  const parsedPlan = parsePlan(raw);
+  let sourcePlan = parsedPlan;
+  if (parsedPlan.fidelityMode === "pixel-perfect") {
+    let validated = normalizeJsonSpec(parsedPlan);
+    if (validated.readiness !== "ready") {
+      const recovered = recoverPixelPerfectPlan(parsedPlan);
+      if (!recovered.recoverable) {
+        console.error(`Pixel-perfect scaffold cannot recover automatically: ${recovered.errors.join(" ")}`);
+        process.exit(2);
+      }
+      const recoveredValidation = normalizeJsonSpec(recovered.plan);
+      validated = {
+        ...recoveredValidation,
+        readiness: "ready-with-estimates",
+        validationErrors: recoveredValidation.validationErrors,
+        recoveryActions: recovered.plan.recoveryActions || [],
+      };
+    }
+    if (!validated.referenceRaster?.width || !validated.referenceRaster?.height) {
+      console.error(
+        "Pixel-perfect scaffold cannot continue without a reference raster. Run auto-sample-screenshot.js first."
+      );
+      process.exit(2);
+    }
+    sourcePlan = validated;
+  }
+  const plan = normalizePlan(sourcePlan);
+  if (plan.fidelityMode === "pixel-perfect" && !["ready", "ready-with-estimates"].includes(plan.readiness)) {
+    console.error(
+      `Pixel-perfect scaffold blocked: plan readiness is ${plan.readiness}. Complete measurements before generation.`
+    );
+    process.exit(2);
+  }
   const created = [];
 
   writeSharedArtifacts(plan, outDir, stack, cssMode, created);
@@ -1204,4 +1370,8 @@ function main() {
   );
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = { normalizePlan };
