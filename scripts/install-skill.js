@@ -8,21 +8,21 @@ const { parseArgs, ensureDir } = require("../lib/utils");
 const SOURCE_DIR = path.resolve(__dirname, "..");
 
 const PLATFORM_MAP = {
-  claude: { root: ".claude", skillPath: "skills/frontend-ui-builder", stripFrontmatter: false },
-  cursor: { root: ".cursor", skillPath: "skills/frontend-ui-builder", stripFrontmatter: true },
-  windsurf: { root: ".windsurf", skillPath: "skills/frontend-ui-builder", stripFrontmatter: true },
-  antigravity: { root: ".agent", skillPath: "skills/frontend-ui-builder", stripFrontmatter: true },
-  copilot: { root: ".github", skillPath: "skills/frontend-ui-builder", stripFrontmatter: true },
-  kiro: { root: ".kiro", skillPath: "skills/frontend-ui-builder", stripFrontmatter: true },
-  roocode: { root: ".roo", skillPath: "skills/frontend-ui-builder", stripFrontmatter: true },
-  codex: { root: ".codex", skillPath: "skills/frontend-ui-builder", stripFrontmatter: false },
-  qoder: { root: ".qoder", skillPath: "skills/frontend-ui-builder", stripFrontmatter: true },
-  gemini: { root: ".gemini", skillPath: "skills/frontend-ui-builder", stripFrontmatter: true },
-  trae: { root: ".trae", skillPath: "skills/frontend-ui-builder", stripFrontmatter: true },
-  opencode: { root: ".opencode", skillPath: "skills/frontend-ui-builder", stripFrontmatter: true },
-  continue: { root: ".continue", skillPath: "skills/frontend-ui-builder", stripFrontmatter: false },
-  codebuddy: { root: ".codebuddy", skillPath: "skills/frontend-ui-builder", stripFrontmatter: true },
-  droid: { root: ".factory", skillPath: "skills/frontend-ui-builder", stripFrontmatter: true },
+  claude: { root: ".claude", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: false },
+  cursor: { root: ".cursor", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: true },
+  windsurf: { root: ".windsurf", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: true },
+  antigravity: { root: ".agent", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: true },
+  copilot: { root: ".github", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: true },
+  kiro: { root: ".kiro", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: true },
+  roocode: { root: ".roo", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: true },
+  codex: { root: ".codex", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: false },
+  qoder: { root: ".qoder", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: true },
+  gemini: { root: ".gemini", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: true },
+  trae: { root: ".trae", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: true },
+  opencode: { root: ".opencode", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: true },
+  continue: { root: ".continue", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: false },
+  codebuddy: { root: ".codebuddy", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: true },
+  droid: { root: ".factory", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: true },
 };
 
 const COPY_DIRS = ["agents", "assets", "references", "scripts"];

@@ -1,7 +1,7 @@
 interface:
-  display_name: "Frontend UI Builder"
-  short_description: "Build and verify faithful frontend UI from specs or screenshots."
-  default_prompt: "Use $frontend-ui-builder to implement this frontend UI; for screenshots, recover missing measurements, generate code, render, diff, and iteratively correct it instead of stopping at validation failures."
+  display_name: "Pixel-perfect-UI"
+  short_description: "Reconstruct frontend UI with measured screenshot fidelity."
+  default_prompt: "Use $pixel-perfect-ui to reconstruct this visual reference as working frontend code, then capture, diff, recover, and iterate until the measured result converges."
 
 policy:
   allow_implicit_invocation: true
