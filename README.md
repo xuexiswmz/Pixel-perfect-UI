@@ -1,5 +1,7 @@
 # Pixel-perfect-UI
 
+**简体中文** | [English](README_EN.md)
+
 一个面向截图还原和现有页面视觉修正的前端 Skill。它会测量参考图、生成或修改代码、确定性截图、生成像素差异图，并根据差异继续修正，而不是只返回验证失败。
 
 支持 HTML、React、Vue、Svelte，以及 CSS、Tailwind CSS、Less 和 SCSS。
