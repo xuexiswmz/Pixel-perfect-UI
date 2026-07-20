@@ -4,44 +4,11 @@ This file defines the intended input and output contract for each bundled script
 
 ## Contents
 
-- Request analysis and patch location
+- Visual patch planning and repository location
 - Visual reconstruction planning and scaffolding
 - Screenshot auto-sampling and region measurement
 - Fidelity verification
 - Skill installation
-
-## analyze-request.js
-
-Purpose:
-
-- normalize a short brief, document excerpt, or mixed instruction into a structured request summary
-
-CLI:
-
-```bash
-node scripts/analyze-request.js --input "<text>"
-node scripts/analyze-request.js --file path/to/request.txt
-node scripts/analyze-request.js --input "<text>" --stack react --css tailwind
-```
-
-Input:
-
-- `--input`: raw text prompt
-- `--file`: path to a plain-text requirement file
-- `--stack`: optional forced target stack
-- `--css`: optional forced style mode
-
-Output JSON:
-
-- `inputMode`: `brief | document | visual`
-- `workstream`: `ui | business | mixed`
-- `taskMode`: `create-page | create-component | patch-existing | visual-patch-existing | reconstruct-screenshot-exact`
-- `stack`: `auto | html | react | vue | svelte`
-- `cssMode`: `auto | css | tailwind | less | scss`
-- `fidelity`: `standard | high-fidelity | pixel-perfect`
-- `deliverable`: `static-files | component-files | minimal-diff`
-- `businessSignals`: string array of matched business-logic indicators
-- `assumptions`: string array
 
 ## plan-visual-patch.js
 
@@ -188,38 +155,6 @@ Node candidate object:
 - `confidence`: `low | medium | high`
 - `insertionType`: suggested patch type
 - `reasons`: why the node ranked highly
-
-## scaffold-output.js
-
-Purpose:
-
-- create starter files for a selected stack and style mode
-
-CLI:
-
-```bash
-node scripts/scaffold-output.js --stack react --css scss --name faq-section --title "FAQ" --out generated-ui
-```
-
-Input:
-
-- `--stack`: `html | react | vue | svelte`
-- `--css`: `css | tailwind | less | scss`
-- `--name`: component or module base name
-- `--title`: visible title placeholder
-- `--out`: output folder
-
-Output JSON:
-
-- `stack`
-- `cssMode`
-- `outDir`
-- `created`: array of file paths created
-
-Current scope:
-
-- supports starter scaffolds, not full visual reconstruction
-- meant to accelerate generation, not replace the main reasoning workflow
 
 ## plan-visual-reconstruction.js
 

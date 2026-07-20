@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 const { buildPlanFromText, normalizeJsonSpec, recoverPixelPerfectPlan } = require("./plan-visual-reconstruction");
-const { detectTaskMode, detectFidelity } = require("./analyze-request");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -83,14 +82,9 @@ function run() {
     correctedScale.plan.devicePixelRatio === 1 && correctedScale.plan.cssViewport.width === 201,
     "inconsistent viewport/DPR should reset to an executable DPR 1 baseline"
   );
-  assert(
-    detectTaskMode("Use this screenshot for a pixel-perfect reconstruction") === "reconstruct-screenshot-exact",
-    "pixel-perfect screenshot request should route to exact reconstruction"
-  );
-  assert(
-    detectFidelity("visual", "pixel-perfect reconstruction") === "pixel-perfect",
-    "pixel-perfect fidelity should remain distinct from ordinary high fidelity"
-  );
+  const routedExact = buildPlanFromText("Use this screenshot for a pixel-perfect reconstruction");
+  assert(routedExact.fidelityMode === "pixel-perfect", "pixel-perfect screenshot request should route to exact reconstruction");
+  assert(routedExact.readiness === "blocked-by-measurements", "unmeasured exact reconstruction should require measurement recovery");
 
   console.log("PASS");
   console.log("  exact text plan blocks heuristic defaults: ✓");
