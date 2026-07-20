@@ -25,7 +25,7 @@ const PLATFORM_MAP = {
   droid: { root: ".factory", skillPath: "skills/pixel-perfect-ui", stripFrontmatter: true },
 };
 
-const COPY_DIRS = ["agents", "assets", "references", "scripts"];
+const COPY_DIRS = ["agents", "assets", "lib", "references", "scripts"];
 const COPY_FILES = ["package.json", "package-lock.json"];
 
 // 某些平台不接受 frontmatter，这里按需移除 SKILL.md 头部。
@@ -47,7 +47,7 @@ function copyDir(source, target) {
     force: true,
     filter: (filePath) => {
       const base = path.basename(filePath);
-      return base !== "node_modules" && base !== ".tmp-check" && base !== ".tmp-check-2";
+      return base !== "node_modules" && base !== ".DS_Store" && base !== ".tmp-check" && base !== ".tmp-check-2";
     },
   });
 }
